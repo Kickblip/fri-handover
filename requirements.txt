@@ -1,2 +1,8 @@
 pyk4a
 opencv-python
+scipy
+chumpy
+matplotlib
+tqdm
+torch
+numpy
