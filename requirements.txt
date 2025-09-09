@@ -1,8 +1,9 @@
+wheel
 pyk4a
 opencv-python
 scipy
-chumpy
 matplotlib
 tqdm
 torch
 numpy
+git+https://github.com/mattloper/chumpy
