@@ -40,8 +40,8 @@ def colorize(
     return img
 
 def get_names() -> Tuple[str, str]:
-    user1 = input("Enter name for User 1: ")
-    user2 = input("Enter name for User 2: ")
+    user1 = input("Enter name for User 1: ").strip().lower()
+    user2 = input("Enter name for User 2: ").strip().lower()
     return user1, user2
 
 def play(filename: str) -> None:    

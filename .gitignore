@@ -2,3 +2,4 @@
 SMPLH_female.pkl
 SMPLH_male.pkl
 venv/
+__pycache__

@@ -4,7 +4,8 @@ opencv-python
 scipy
 matplotlib
 tqdm
-torch
 numpy
 git+https://github.com/mattloper/chumpy
 playsound3
+
+torch
