@@ -1,8 +1,15 @@
-from pyk4a import Config, ImageFormat, PyK4A, PyK4ARecord
+from pyk4a import Config, ImageFormat, PyK4A, PyK4ARecord, ColorResolution, DepthMode, FPS
 
 class KinectClient:
     def __init__(self):
-        self.config = Config(color_format=ImageFormat.COLOR_MJPG)
+        self.config = Config(
+            # https://unanancyowen.github.io/k4asdk_python_apireference/classk4a_1_1__bindings_1_1k4atypes_1_1_device_configuration.html
+            color_format=ImageFormat.COLOR_MJPG,
+            color_resolution=ColorResolution.COLOR_1440P,
+            depth_mode=DepthMode.NFOV_UNBINNED,
+            camera_fps=FPS.FPS30,
+            synchronized_images_only=False,
+        )
         self.device = PyK4A(config=self.config, device_id=0)
         self.device.start()
         
