@@ -26,3 +26,8 @@ class KinectClient:
         record.flush()
         record.close()
         print(f"{record.captures_count} frames written.")
+    
+    def close(self):
+        if self.device:
+            self.device.stop()
+            self.device.close()

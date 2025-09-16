@@ -2,9 +2,7 @@ import time
 from helpers import get_names, play
 from KinectClient import KinectClient
 
-def main():
-    kinect_client = KinectClient()
-    
+def main():    
     confirm = " "
     while confirm != 'y':
         print("Hello! Please enter your actual names.")
@@ -22,25 +20,30 @@ def main():
     time.sleep(5)
     play("countdown-beep.mp3")
     
-    for trial in range(1, n_trials + 1):
-        print(f"Trial {trial} of {n_trials}")
-        
-        if trial % 2 != 0:
-            play("one-two.mp3")
-            play("start-beep.mp3")
-            # kinect_client.start_recording(path=f"sequences/{trial}/rgb/{user1}_{user2}.mkv", n_seconds=5)
-            kinect_client.start_recording(path=f"{trial}_{user1}_{user2}.mkv", n_seconds=5)
-        else:
-            play("two-one.mp3")
-            play("start-beep.mp3")
-            # kinect_client.start_recording(path=f"sequences/{trial}/rgb/{user2}_{user1}.mkv", n_seconds=5)
-            kinect_client.start_recording(path=f"{trial}_{user1}_{user2}.mkv", n_seconds=5)
+    kinect_client = KinectClient()
+    try:             
+        for trial in range(1, n_trials + 1):
+            print(f"Trial {trial} of {n_trials}")
+            
+            if trial % 2 != 0:
+                play("one-two.mp3")
+                play("start-beep.mp3")
+                # kinect_client.start_recording(path=f"sequences/{trial}/rgb/{user1}_{user2}.mkv", n_seconds=5)
+                kinect_client.start_recording(path=f"{trial}_{user1}_{user2}.mkv", n_seconds=5)
+            else:
+                play("two-one.mp3")
+                play("start-beep.mp3")
+                # kinect_client.start_recording(path=f"sequences/{trial}/rgb/{user2}_{user1}.mkv", n_seconds=5)
+                kinect_client.start_recording(path=f"{trial}_{user1}_{user2}.mkv", n_seconds=5)
 
-        play("done-beep.mp3")
-        time.sleep(1)
-    
-    play("complete.mp3")
-    print("Recording complete. Thank you!")
+            play("done-beep.mp3")
+            time.sleep(1)
+        
+        play("complete.mp3")
+        print("Recording complete. Thank you!")
+        
+    except KeyboardInterrupt:
+        kinect_client.close()
 
 if __name__ == "__main__":
     main()
