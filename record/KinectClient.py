@@ -8,17 +8,16 @@ class KinectClient:
             color_resolution=ColorResolution.RES_1440P,
             depth_mode=DepthMode.NFOV_UNBINNED,
             camera_fps=FPS.FPS_30,
-            synchronized_images_only=False,
+            synchronized_images_only=True,
         )
         self.device = PyK4A(config=self.config, device_id=0)
         self.device.start()
         
     def start_recording(self, path: str, n_seconds: int = 5) -> None:
-        print(f"Open record file {path}")
         record = PyK4ARecord(device=self.device, config=self.config, path=path)
         record.create()
 
-        print(f"Recording for {n_seconds} seconds... Press CTRL-C to stop recording.")
+        print(f"Recording for {n_seconds} seconds...")
         for _ in range(30 * n_seconds):
             capture = self.device.get_capture()
             record.write_capture(capture)
