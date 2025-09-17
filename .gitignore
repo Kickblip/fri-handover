@@ -3,3 +3,5 @@ SMPLH_female.pkl
 SMPLH_male.pkl
 venv/
 __pycache__
+trials/
+*.mkv
