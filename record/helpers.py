@@ -6,8 +6,6 @@ import numpy as np
 
 from pyk4a import ImageFormat
 
-from playsound3 import playsound
-
 
 def convert_to_bgra_if_required(color_format: ImageFormat, color_image):
     # examples for all possible pyk4a.ColorFormats
@@ -43,7 +41,3 @@ def get_names() -> Tuple[str, str]:
     user1 = input("Enter name for User 1: ").strip().lower()
     user2 = input("Enter name for User 2: ").strip().lower()
     return user1, user2
-
-def play(filename: str) -> None:    
-    audio_path = os.path.join(os.path.dirname(__file__), 'audio', f'{filename}')
-    playsound(audio_path)

@@ -6,6 +6,5 @@ matplotlib
 tqdm
 numpy
 git+https://github.com/mattloper/chumpy
-playsound3
-
+pygame
 torch
