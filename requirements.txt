@@ -8,3 +8,4 @@ numpy
 git+https://github.com/mattloper/chumpy
 pygame
 torch
+pupil-apriltags
