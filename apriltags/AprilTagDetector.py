@@ -1,9 +1,10 @@
 from pyk4a import CalibrationType, 
 import pupil_apriltags as apriltag
 class AprilTagDetector():
-    __init__():
+    def __init__(self):
         self.detector = apriltag.Detector()
         self.device = PyK4A(config=self.config, device_id=0)
+        self.device.start()
         calibration = device.calibration
         self.K_color = calibration.get_camera_matrix(CalibrationType.COLOR)
         self.tag_sizes = {
@@ -15,7 +16,7 @@ class AprilTagDetector():
             5: 0.064
         }
         
-    def getPoses(img):
+    def getPoses(self, img):
 
         tags = self.detector.detect(img)
         fx, fy = self.K_color[0, 0], self.K_color[1, 1]
