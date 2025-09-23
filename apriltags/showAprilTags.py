@@ -1,4 +1,6 @@
 import AprilTagDetector
+import numpy as np
+
 
 def main():
     detector = AprilTagDetector()

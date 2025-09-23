@@ -1,4 +1,4 @@
-from pyk4a import CalibrationType, 
+from pyk4a import PyK4A, Config, CalibrationType, 
 import pupil_apriltags as apriltag
 class AprilTagDetector():
     def __init__(self):
