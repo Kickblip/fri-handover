@@ -1,11 +1,11 @@
-from pyk4a import PyK4A, Config, CalibrationType, 
+from pyk4a import PyK4A, Config, CalibrationType
 import pupil_apriltags as apriltag
 class AprilTagDetector():
     def __init__(self):
         self.detector = apriltag.Detector()
         self.device = PyK4A(config=self.config, device_id=0)
         self.device.start()
-        calibration = device.calibration
+        calibration = self.device.calibration
         self.K_color = calibration.get_camera_matrix(CalibrationType.COLOR)
         self.tag_sizes = {
             0: 0.100, 
@@ -28,9 +28,9 @@ class AprilTagDetector():
                 print(f"Warning: No size found for tag {tag.tag_id}, skipping")
                 continue
 
-            tag_size = tag_sizes[tag.tag_id]
+            tag_size = self.tag_sizes[tag.tag_id]
 
-            pose, e0, e1 = detector.detection_pose(
+            pose, e0, e1 = self.detector.detection_pose(
                 tag, (fx, fy, cx, cy), tag_size
             )
             result.append((tag.tag_id, pose))
