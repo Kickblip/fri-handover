@@ -1,6 +1,9 @@
+from pupil_apriltags import Detector
+
 class AprilTagDetector():
     def __init__(self):
-        self.detector = apriltag.Detector()
+        self.detector = Detector(families="tag36h11")
+
         self.tag_sizes = {
             0: 0.100, 
             1: 0.100,  
