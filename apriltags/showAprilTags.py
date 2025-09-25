@@ -1,5 +1,6 @@
 import AprilTagDetector
 import numpy as np
+import cv2
 
 
 def main():
