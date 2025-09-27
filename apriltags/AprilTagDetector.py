@@ -1,9 +1,20 @@
 from pupil_apriltags import Detector
-
+import numpy as np
+import math
 class AprilTagDetector():
     def __init__(self):
-        self.detector = Detector(families="tag36h11")
-
+        self.detector =  Detector(
+        families="tag25h9",   # change if your tags are another family
+        nthreads=4,
+        quad_decimate=2.0,     # keep resolution (good for small tags)
+        quad_sigma=0.0,
+        refine_edges=1
+    )
+        self.K_color = np.array([
+            [600.0,   0.0, 320.0],
+            [  0.0, 600.0, 240.0],
+            [  0.0,   0.0,   1.0]
+        ])
         self.tag_sizes = {
             0: 0.100, 
             1: 0.100,  
@@ -14,24 +25,19 @@ class AprilTagDetector():
         }
         
     def getPoses(self, img):
-
-        tags = self.detector.detect(img)
-        fx, fy = self.K_color[0, 0], self.K_color[1, 1]
-        cx, cy = self.K_color[0, 2], self.K_color[1, 2]
-
+        h, w = img.shape[:2]
+        cx, cy = w/2.0, h/2.0
+        fx = fy = w / (2 * math.tan(math.radians(60) / 2))
         result = []
-        for tag in tags:
-            if tag.tag_id not in self.tag_sizes:
-                print(f"Warning: No size found for tag {tag.tag_id}, skipping")
-                continue
-
-            tag_size = self.tag_sizes[tag.tag_id]
-
-            pose, e0, e1 = self.detector.detection_pose(
-                tag, (fx, fy, cx, cy), tag_size
+        for tag_id, tag_size in self.tag_sizes.items():
+            detections = self.detector.detect(
+                img,
+                estimate_tag_pose=True,
+                camera_params=[fx, fy, cx, cy],
+                tag_size=tag_size
             )
-            result.append((tag.tag_id, pose))
-
+            for tag in detections:
+                result.append((tag, (tag.pose_R, tag.pose_t)))
         return result
 
 
