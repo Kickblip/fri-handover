@@ -1,20 +1,18 @@
 from pupil_apriltags import Detector
+import cv2
 import numpy as np
-import math
+
 class AprilTagDetector():
     def __init__(self):
-        self.detector =  Detector(
-        families="tag25h9",   # change if your tags are another family
-        nthreads=4,
-        quad_decimate=1.0,     # keep resolution (good for small tags)
-        quad_sigma=0.0,
-        refine_edges=1
-    )
-        self.K_color = np.array([
-            [600.0,   0.0, 320.0],
-            [  0.0, 600.0, 240.0],
-            [  0.0,   0.0,   1.0]
-        ])
+        self.detector = Detector(
+            families="tag25h9",
+            nthreads=4,
+            quad_decimate=1.0,
+            quad_sigma=0.0,
+            refine_edges=1,
+            decode_sharpening=0.25,
+            debug=0
+        )
         self.tag_sizes = {
             0: 0.100, 
             1: 0.100,  
@@ -25,19 +23,22 @@ class AprilTagDetector():
         }
         
     def getPoses(self, img):
-        h, w = img.shape[:2]
-        cx, cy = w/2.0, h/2.0
-        fx = fy = w / (2 * math.tan(math.radians(60) / 2))
-        result = []
-        for tag_id, tag_size in self.tag_sizes.items():
-            detections = self.detector.detect(
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        
+        detections = self.detector.detect(gray)
+        for tag in detections:
+            corners = tag.corners.astype(int)
+            cv2.polylines(
                 img,
-                estimate_tag_pose=True,
-                camera_params=[fx, fy, cx, cy],
-                tag_size=tag_size
+                [corners],
+                color=(0, 0, 255),
+                isClosed=True,
+                thickness=2
             )
-            for tag in detections:
-                result.append((tag, (tag.pose_R, tag.pose_t)))
-        return result
-
-
+            
+            c = tuple(np.round(tag.center).astype(int))
+            cv2.circle(img, center=c, radius=4, color=(0, 0, 255), thickness=-1)
+        
+        cv2.imshow("AprilTags", img)
+        cv2.waitKey(1)
+        return detections
