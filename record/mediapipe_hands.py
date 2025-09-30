@@ -18,7 +18,7 @@ mp_drawing = mp.solutions.drawing_utils
 
 # Read input video
 cap = cv2.VideoCapture(input_video_path)
-
+all_frame_landmarks = []
 # Get video properties
 frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -38,7 +38,7 @@ while cap.isOpened():
 
     # Process frame with MediaPipe
     results = hands.process(rgb_frame)
-
+2
     # Draw landmarks if any hands are detected
     if results.multi_hand_landmarks:
         for hand_landmarks in results.multi_hand_landmarks:
@@ -54,3 +54,38 @@ out.release()
 hands.close()
 
 print(f"Processing complete. Saved to: {output_video_path}")
+
+
+
+
+
+def track_pose_3d(video_path: str, *, segment: bool, max_frame_count: int | None) -> None:
+    mp_pose = mp.solutions.pose  
+
+    rr.log("person", rr.ViewCoordinates.RIGHT_HAND_Y_DOWN, timeless=True)
+  
+    with closing(VideoSource(video_path)) as video_source, mp_pose.Pose() as pose:
+        for idx, bgr_frame in enumerate(video_source.stream_bgr()):
+            if max_frame_count is not None and idx >= max_frame_count:
+                break
+
+            rgb = cv2.cvtColor(bgr_frame.data, cv2.COLOR_BGR2RGB)
+
+            # Associate frame with the data
+            rr.set_time_seconds("time", bgr_frame.time)
+            rr.set_time_sequence("frame_idx", bgr_frame.idx)
+
+            # Present the video
+            rr.log("video/rgb", rr.Image(rgb).compress(jpeg_quality=75))
+
+            # Get the prediction results
+            results = pose.process(rgb)
+            h, w, _ = rgb.shape
+
+            # New entity "Person" for the 3D presentation
+            landmark_positions_3d = read_landmark_positions_3d(results)
+            if landmark_positions_3d is not None:
+                rr.log(
+                    "person/pose/points",
+                    rr.Points3D(landmark_positions_3d, class_ids=0, keypoint_ids=mp_pose.PoseLandmark),
+                )
