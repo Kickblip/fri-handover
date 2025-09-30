@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<annotations>
+  <version>1.1</version>
+  <meta>
+    <task>
+      <id>4</id>
+      <name>Handover_3</name>
+      <size>90</size>
+      <mode>interpolation</mode>
+      <overlap>5</overlap>
+      <bugtracker></bugtracker>
+      <created>2025-09-30 19:19:19.135956+00:00</created>
+      <updated>2025-09-30 19:28:30.201647+00:00</updated>
+      <subset>default</subset>
+      <start_frame>0</start_frame>
+      <stop_frame>89</stop_frame>
+      <frame_filter></frame_filter>
+      <segments>
+        <segment>
+          <id>4</id>
+          <start>0</start>
+          <stop>89</stop>
+          <url>http://localhost:8080/api/jobs/4</url>
+        </segment>
+      </segments>
+      <owner>
+        <username>AzaanWaseem</username>
+        <email>azaanwaseem06@gmail.com</email>
+      </owner>
+      <assignee></assignee>
+      <labels>
+        <label>
+          <name>giver_holding</name>
+          <color>#1041dd</color>
+          <type>any</type>
+          <attributes>
+          </attributes>
+        </label>
+        <label>
+          <name>both_holding</name>
+          <color>#74b40f</color>
+          <type>any</type>
+          <attributes>
+          </attributes>
+        </label>
+        <label>
+          <name>receiver_holding</name>
+          <color>#2eb7fd</color>
+          <type>any</type>
+          <attributes>
+          </attributes>
+        </label>
+      </labels>
+      <original_size>
+        <width>2560</width>
+        <height>1440</height>
+      </original_size>
+      <source>3_diego_rohan.mkv</source>
+    </task>
+    <dumped>2025-09-30 19:37:27.953469+00:00</dumped>
+  </meta>
+</annotations>
