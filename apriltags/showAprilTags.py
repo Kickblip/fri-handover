@@ -12,7 +12,7 @@ def process_and_show(path: str, detector: AprilTagDetector) -> None:
         ok, frame_bgr = cap.read()
         if not ok:
             break
-        detector.getPoses(frame_bgr)
+        detector.get_poses_from_image(frame_bgr)
 
     cap.release()
     cv2.destroyAllWindows()
@@ -24,9 +24,11 @@ def main():
     filename = os.listdir(folder)[0]
     path = os.path.join(folder, filename)
     if os.path.isfile(path):
-        print(path)
+        print("Target File:", path)
     base_dir = Path(__file__).parent.parent  
     full_path = os.path.join(base_dir, path)
+
+    calibration = detector.load_camera_calibration(full_path)
     process_and_show(full_path, detector)
 
 if __name__ == "__main__":
