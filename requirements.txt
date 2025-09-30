@@ -1,10 +1,12 @@
 wheel
-pyk4a
 opencv-python
 scipy
 matplotlib
 tqdm
 numpy
-git+https://github.com/mattloper/chumpy
 pygame
+pupil-apriltags
+
+pyk4a
 torch
+git+https://github.com/mattloper/chumpy
