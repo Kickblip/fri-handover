@@ -1,7 +1,8 @@
 import cv2
 import mediapipe as mp
 import os
-
+# testingggg comment
+ddd
 # Input and output file paths
 input_video_path = '1_sept21_1_sept21_2.mkv'
 output_video_path = 'output_with_hands.mp4'
