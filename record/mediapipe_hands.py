@@ -58,7 +58,7 @@ print(f"Processing complete. Saved to: {output_video_path}")
 
 
 
-
+# make sure to include time stamp, list of tuples (each tuple, 21 landmarks and the time stamp)
 def track_pose_3d(video_path: str, *, segment: bool, max_frame_count: int | None) -> None:
     mp_pose = mp.solutions.pose  
 
