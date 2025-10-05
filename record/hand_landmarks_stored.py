@@ -3,7 +3,7 @@ import mediapipe as mp
 import numpy as np
 
 # Input and output file paths
-input_video_path = '1_sept21_1_sept21_2.mkv'
+input_video_path = '1_bhavana_final_neel_final.mkv'
 output_video_path = 'output_with_hands.mp4'
 
 # Initialize MediaPipe Hands
