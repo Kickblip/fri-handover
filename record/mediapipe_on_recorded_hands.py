@@ -3,7 +3,7 @@ import mediapipe as mp
 import os
 
 # Input and output file paths
-input_video_path = '1_bhavana_final_neel_final.mkv
+input_video_path = '1_bhavana_final_neel_final.mkv'
 output_video_path = 'output_with_hands.mp4'
 
 # Initialize MediaPipe Hands

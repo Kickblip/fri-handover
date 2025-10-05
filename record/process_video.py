@@ -160,7 +160,7 @@ def process_video(mkv_path, output_csv_path):
 # --- 5. Execution ---
 if __name__ == '__main__':
     # IMPORTANT: Change this to the path of your .mkv file
-    VIDEO_FILE_PATH = 'input_video.mkv' 
+    VIDEO_FILE_PATH = '1_bhavana_final_neel_final.mkv' 
     OUTPUT_FILE_PATH = 'hand_landmarks_and_rotation.csv'
 
     # Create a dummy .mkv file if you don't have one for testing the script structure
