@@ -6,7 +6,7 @@ tqdm
 numpy
 pygame
 pupil-apriltags
-
 pyk4a
 torch
+pandas
 git+https://github.com/mattloper/chumpy
