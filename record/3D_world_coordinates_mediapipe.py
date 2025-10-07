@@ -5,11 +5,11 @@ import cv2
 import mediapipe as mp
 import pandas as pd
 
-
+### ONE HAND
 # ==== USER CONFIGURATION ====
 input_video = Path("demo-content/output_with_hands.mp4")       # <-- Change this
 output_csv = Path("outputs/hand_world_landmarks.csv")          # <-- Renamed for clarity
-output_video = Path("outputs/output_debug_video_bhavana_added_3D_world_coordinates.mp4")            # <-- Optional, set to None to skip
+output_video = Path("outputs/output_world_coordinates.mp4")            # <-- Optional, set to None to skip
 max_hands = 2
 min_detection_confidence = 0.5
 min_tracking_confidence = 0.5
