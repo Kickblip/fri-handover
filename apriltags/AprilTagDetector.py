@@ -6,10 +6,11 @@ from pyk4a import PyK4APlayback, CalibrationType
 class AprilTagDetector:
     TAG_IDS = {0, 1}
     TAG_SIZE_M = 0.100
+    MAGIC_WEIGHT = 0.65
 
-    BOX_HALF_X = 0.190 * 0.65
-    BOX_HALF_Y = 0.270 * 0.65
-    BOX_HALF_Z = 0.064 * 0.65
+    BOX_HALF_X = 0.190 * MAGIC_WEIGHT
+    BOX_HALF_Y = 0.270 * MAGIC_WEIGHT
+    BOX_HALF_Z = 0.064 * MAGIC_WEIGHT
 
     MIDPOINT_OFFSETS = {
         0: (0.0, 0.0, 0.048),
@@ -90,13 +91,13 @@ class AprilTagDetector:
 
         for i in range(8):
             p = tuple(np.round(pts2d[i,0]).astype(int))
-            cv2.circle(img_bgr, p, 3, (0,0,255), -1)
+            cv2.circle(img_bgr, p, 3, (0,255,0), -1)
         for a,b in self._edges:
             pa = tuple(np.round(pts2d[a,0]).astype(int))
             pb = tuple(np.round(pts2d[b,0]).astype(int))
-            cv2.line(img_bgr, pa, pb, (0,0,255), 1)
+            cv2.line(img_bgr, pa, pb, (0,255,0), 1)
 
-    def get_poses_from_image(self, img_bgr):
+    def get_poses_from_image(self, img_bgr, save_video):
         if self.K is None:
             return []
 
@@ -105,9 +106,9 @@ class AprilTagDetector:
 
         for tid, R, t, det in results:
             corners = det.corners.astype(int)
-            cv2.polylines(img_bgr, [corners], True, (0,0,255), 1)
+            cv2.polylines(img_bgr, [corners], True, (0,255,0), 1)
             c = tuple(np.round(det.center).astype(int))
-            cv2.circle(img_bgr, c, 3, (0,0,255), -1)
+            cv2.circle(img_bgr, c, 3, (0,255,0), -1)
             self._draw_box(img_bgr, R, t, tid)
 
         if self.debug:
@@ -116,7 +117,7 @@ class AprilTagDetector:
 
         return [{"tag_id": tid, "R": R, "t": t} for (tid, R, t, _) in results]
 
-    def run_on_mkv(self, path: str):
+    def run_on_mkv(self, path: str, save_video: bool):
         if self.K is None:
             self.load_camera_calibration(path)
 
@@ -128,7 +129,7 @@ class AprilTagDetector:
             ok, frame_bgr = cap.read()
             if not ok:
                 break
-            self.get_poses_from_image(frame_bgr)
+            self.get_poses_from_image(frame_bgr, save_video)
 
         cap.release()
         cv2.destroyAllWindows()
