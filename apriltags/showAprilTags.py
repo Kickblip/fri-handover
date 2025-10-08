@@ -1,13 +1,17 @@
 from AprilTagDetector import AprilTagDetector
 import os
 from pathlib import Path
+import argparse
 
 def main():
     detector = AprilTagDetector()
 
-    folder = "trials/3"
-    filename = os.listdir(folder)[5]
-    path = os.path.join(folder, filename)
+    parser = argparse.ArgumentParser(prog='AprilTagDetector',)
+
+    parser.add_argument('filename')
+    args = parser.parse_args()
+    path = args.filename
+    
     if os.path.isfile(path):
         print("Target File:", path)
     base_dir = Path(__file__).parent.parent  

@@ -1,135 +1,128 @@
 from pupil_apriltags import Detector
 import cv2
 import numpy as np
-import math
-import time
-
-
-def rvec_to_euler_xyz(rvec):
-    R, _ = cv2.Rodrigues(rvec)
-    sy = math.sqrt(R[0, 0] * R[0, 0] + R[1, 0] * R[1, 0])
-    singular = sy < 1e-6
-    if not singular:
-        x = math.atan2(R[2, 1], R[2, 2])
-        y = math.atan2(-R[2, 0], sy)
-        z = math.atan2(R[1, 0], R[0, 0])
-    else:
-        x = math.atan2(-R[1, 2], R[1, 1])
-        y = math.atan2(-R[2, 0], sy)
-        z = 0.0
-    return np.degrees([x, y, z])
-
+from pyk4a import PyK4APlayback, CalibrationType
 
 class AprilTagDetector:
-    def __init__(self, camera_matrix=None, dist_coeffs=None):
-        """
-        AprilTag detector that works on macOS without pyk4a.
-        You must provide camera intrinsics manually if you want accurate pose estimation.
-        """
+    TAG_IDS = {0, 1}
+    TAG_SIZE_M = 0.100
+
+    BOX_HALF_X = 0.190 * 0.65
+    BOX_HALF_Y = 0.270 * 0.65
+    BOX_HALF_Z = 0.064 * 0.65
+
+    MIDPOINT_OFFSETS = {
+        0: (0.0, 0.0, 0.048),
+        1: (0.0, 0.0, 0.048),
+    }
+
+    def __init__(self, debug=True):
+        self.debug = debug
         self.detector = Detector(
             families="tag25h9",
             nthreads=4,
-            quad_decimate=1.0,
-            quad_sigma=0.0,
+            quad_decimate=1.5,
+            quad_sigma=0.8,
             refine_edges=1,
             decode_sharpening=0.25,
             debug=0
         )
+        self.K = None
+        self.dist = None
+        self.playback = None
 
-        # Default intrinsics (approx, 1080p webcam)
-        if camera_matrix is None:
-            fx = fy = 1000.0
-            cx, cy = 960, 540  # image center for 1920x1080
-            self.K = np.array([[fx, 0, cx],
-                               [0, fy, cy],
-                               [0, 0, 1]], dtype=np.float32)
-        else:
-            self.K = camera_matrix.astype(np.float32)
-
-        self.dist = np.zeros((5, 1), dtype=np.float32) if dist_coeffs is None else dist_coeffs
-
-        # Known tag sizes in meters
-        self.tag_sizes = {
-            0: 0.100,
-            1: 0.100,
-            2: 0.064,
-            3: 0.064,
-            4: 0.064,
-            5: 0.064
-        }
-
-        # For relative timing
-        self.start_time = None
-
-    def _pnp_pose_for_tag(self, tag, tag_size):
-        half = tag_size / 2.0
-        objp = np.array([
-            [-half,  half, 0.0],  # top-left
-            [ half,  half, 0.0],  # top-right
-            [ half, -half, 0.0],  # bottom-right
-            [-half, -half, 0.0],  # bottom-left
+        hx, hy, hz = self.BOX_HALF_X, self.BOX_HALF_Y, self.BOX_HALF_Z
+        self._verts_local = np.array([
+            [-hx, -hy, -hz], [ hx, -hy, -hz], [ hx,  hy, -hz], [-hx,  hy, -hz],
+            [-hx, -hy,  hz], [ hx, -hy,  hz], [ hx,  hy,  hz], [-hx,  hy,  hz],
         ], dtype=np.float32)
 
-        imgp = tag.corners.astype(np.float32)
+        self._edges = [(0,1),(1,2),(2,3),(3,0),
+                       (4,5),(5,6),(6,7),(7,4),
+                       (0,4),(1,5),(2,6),(3,7)]
 
-        success, rvec, tvec = cv2.solvePnP(
-            objp, imgp, self.K, self.dist, flags=cv2.SOLVEPNP_IPPE_SQUARE
+    def load_camera_calibration(self, mkv_path: str):
+        pb = PyK4APlayback(mkv_path)
+        pb.open()
+        calib = pb.calibration
+        K = calib.get_camera_matrix(CalibrationType.COLOR).astype(np.float32)
+        dist = calib.get_distortion_coefficients(CalibrationType.COLOR).astype(np.float32)
+
+        self.K, self.dist = K, dist
+        self.playback = pb
+
+    def _detect_and_estimate(self, gray):
+
+        fx, fy, cx, cy = float(self.K[0,0]), float(self.K[1,1]), float(self.K[0,2]), float(self.K[1,2])
+
+        dets = self.detector.detect(
+            gray,
+            estimate_tag_pose=True,
+            camera_params=(fx, fy, cx, cy),
+            tag_size=self.TAG_SIZE_M
         )
-        if not success:
-            return None, None
-        return rvec, tvec
 
-    def get_poses_from_image(self, img):
-        if self.start_time is None:
-            self.start_time = time.perf_counter()
-
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        detections = self.detector.detect(gray)
-
-        results = []
-        rel_time = time.perf_counter() - self.start_time  # relative time in seconds
-
-        for tag in detections:
-            tag_id = int(tag.tag_id)
-            tag_size = self.tag_sizes.get(tag_id, None)
-            if tag_size is None:
+        out = []
+        for d in dets:
+            tid = int(d.tag_id)
+            if tid not in self.TAG_IDS:
                 continue
+            if getattr(d, "pose_R", None) is None or getattr(d, "pose_t", None) is None:
+                continue
+            R = np.asarray(d.pose_R, dtype=np.float32)
+            t = np.asarray(d.pose_t, dtype=np.float32).reshape(3,1)
+            out.append((tid, R, t, d))
+        return out
 
-            rvec, tvec = self._pnp_pose_for_tag(tag, tag_size)
-            if rvec is not None:
-                euler = rvec_to_euler_xyz(rvec)
-                pose_info = {
-                    "id": tag_id,
-                    "t": tvec.reshape(-1),
-                    "rvec": rvec.reshape(-1),
-                    "euler_xyz_deg": euler,
-                    "center_px": tag.center.tolist(),
-                    "timestamp": rel_time
-                }
-                results.append(pose_info)
+    def _draw_box(self, img_bgr, R, t, tag_id):
 
-                # --- Drawing on image ---
-                corners = tag.corners.astype(int)
-                cv2.polylines(img, [corners], True, (0, 0, 255), 2)
-                c = tuple(np.round(tag.center).astype(int))
-                cv2.circle(img, c, 4, (0, 255, 0), -1)
+        offset = np.array(self.MIDPOINT_OFFSETS[tag_id], np.float32).reshape(3,1)
+        box_mid_cam = t + R @ offset
 
-                # Show ID
-                cv2.putText(img, f"ID {tag_id}", (c[0] + 10, c[1] - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+        verts_cam = (self._verts_local @ R.T) + box_mid_cam.ravel()[None,:]
 
-                # Show timestamp (ms precision)
-                cv2.putText(img, f"{rel_time:.3f}s", (c[0] + 10, c[1] + 15),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+        zeros3 = np.zeros((3,1), np.float32)
+        mid2d, _ = cv2.projectPoints(box_mid_cam[None,:,:], zeros3, zeros3, self.K, self.dist)
+        pts2d, _ = cv2.projectPoints(verts_cam.astype(np.float32), zeros3, zeros3, self.K, self.dist)
 
-        cv2.imshow("AprilTags", img)
-        cv2.waitKey(1)
-        return results
+        pm = tuple(np.round(mid2d[0,0]).astype(int))
+        cv2.circle(img_bgr, pm, 6, (0,255,255), -1)
 
-    def run_on_mkv(self, path: str) -> None:
+        for i in range(8):
+            p = tuple(np.round(pts2d[i,0]).astype(int))
+            cv2.circle(img_bgr, p, 3, (0,0,255), -1)
+        for a,b in self._edges:
+            pa = tuple(np.round(pts2d[a,0]).astype(int))
+            pb = tuple(np.round(pts2d[b,0]).astype(int))
+            cv2.line(img_bgr, pa, pb, (0,0,255), 1)
+
+    def get_poses_from_image(self, img_bgr):
+        if self.K is None:
+            return []
+
+        gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+        results = self._detect_and_estimate(gray)
+
+        for tid, R, t, det in results:
+            corners = det.corners.astype(int)
+            cv2.polylines(img_bgr, [corners], True, (0,0,255), 1)
+            c = tuple(np.round(det.center).astype(int))
+            cv2.circle(img_bgr, c, 3, (0,0,255), -1)
+            self._draw_box(img_bgr, R, t, tid)
+
+        if self.debug:
+            cv2.imshow("AprilTags", img_bgr)
+            cv2.waitKey(1)
+
+        return [{"tag_id": tid, "R": R, "t": t} for (tid, R, t, _) in results]
+
+    def run_on_mkv(self, path: str):
+        if self.K is None:
+            self.load_camera_calibration(path)
+
         cap = cv2.VideoCapture(path, cv2.CAP_FFMPEG)
         if not cap.isOpened():
-            raise RuntimeError("Failed to open MKV file")
+            raise RuntimeError("Failed to open file")
 
         while True:
             ok, frame_bgr = cap.read()

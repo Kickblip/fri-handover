@@ -1,11 +1,4 @@
-from matplotlib.pylab import record
 from pyk4a import Config, ImageFormat, PyK4A, PyK4ARecord, ColorResolution, DepthMode, FPS
-import cv2
-import mediapipe as mp
-import time
-import numpy as np
-
-# import k4a
 
 class KinectClient:
     def __init__(self):
@@ -32,7 +25,6 @@ class KinectClient:
         record.flush()
         record.close()
         print(f"{record.captures_count} frames written.")
-
             
     def close(self):
         if self.device:
