@@ -2,6 +2,7 @@ from pupil_apriltags import Detector
 import cv2
 import numpy as np
 from pyk4a import PyK4APlayback, CalibrationType
+import os
 
 class AprilTagDetector:
     TAG_IDS = {0, 1}
@@ -31,6 +32,7 @@ class AprilTagDetector:
         self.K = None
         self.dist = None
         self.playback = None
+        self.writer = None
 
         hx, hy, hz = self.BOX_HALF_X, self.BOX_HALF_Y, self.BOX_HALF_Z
         self._verts_local = np.array([
@@ -124,6 +126,13 @@ class AprilTagDetector:
         cap = cv2.VideoCapture(path, cv2.CAP_FFMPEG)
         if not cap.isOpened():
             raise RuntimeError("Failed to open file")
+        
+        out_path = None
+        if save_video:
+            root, _ = os.path.splitext(path)
+            out_path = root + "_viz.mp4"
+
+        initialized_writer = False
 
         while True:
             ok, frame_bgr = cap.read()
@@ -131,5 +140,21 @@ class AprilTagDetector:
                 break
             self.get_poses_from_image(frame_bgr, save_video)
 
+            if save_video:
+                if not initialized_writer:
+                    h, w = frame_bgr.shape[:2]
+                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                    self.writer = cv2.VideoWriter(out_path, fourcc, 30, (w, h))
+                    if not self.writer.isOpened():
+                        cap.release()
+                        raise RuntimeError("Failed to open video writer for output")
+                    initialized_writer = True
+
+                self.writer.write(frame_bgr)
+
         cap.release()
+        if self.writer is not None:
+            print(f"Wrote visualization file to {out_path}")
+            self.writer.release()
+            self.writer = None
         cv2.destroyAllWindows()
