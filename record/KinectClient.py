@@ -4,7 +4,7 @@ class KinectClient:
     def __init__(self):
         self.config = Config(
             # https://unanancyowen.github.io/k4asdk_python_apireference/classk4a_1_1__bindings_1_1k4atypes_1_1_device_configuration.html
-            color_format=ImageFormat.COLOR_BGRA32,
+            color_format=ImageFormat.COLOR_MJPG,
             color_resolution=ColorResolution.RES_1080P,
             depth_mode=DepthMode.NFOV_UNBINNED,
             camera_fps=FPS.FPS_30,
