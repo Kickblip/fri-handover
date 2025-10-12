@@ -7,7 +7,7 @@ import pandas as pd
 
 ### ONE HAND
 # ==== USER CONFIGURATION ====
-input_video = Path("demo-content/output_with_hands.mp4")       # <-- Change this
+input_video = Path("1_bhavana_final_neel_final.mkv")       # <-- Change this
 output_csv = Path("outputs/hand_world_landmarks.csv")          # <-- Renamed for clarity
 output_video = Path("outputs/output_world_coordinates.mp4")            # <-- Optional, set to None to skip
 max_hands = 2
