@@ -3,8 +3,8 @@ import mediapipe as mp
 import os
 
 # Input and output file paths
-input_video_path = '1_bhavana_final_neel_final.mkv'
-output_video_path = 'output_with_hands.mp4'
+input_video_path = '1_w_w.mkv'
+output_video_path = 'messy_1_w_w.mp4'
 
 # Initialize MediaPipe Hands
 mp_hands = mp.solutions.hands
@@ -38,7 +38,7 @@ while cap.isOpened():
 
     # Process frame with MediaPipe
     results = hands.process(rgb_frame)
-2
+
     # Draw landmarks if any hands are detected
     if results.multi_hand_landmarks:
         for hand_landmarks in results.multi_hand_landmarks:
