@@ -1,4 +1,5 @@
-from pyk4a import Config, ImageFormat, PyK4A, PyK4ARecord, ColorResolution, DepthMode, FPS
+from pyk4a import (PyK4A, Config, ImageFormat, ColorResolution, DepthMode, FPS,
+                   ColorControlCommand, ColorControlMode, PyK4ARecord)
 
 class KinectClient:
     def __init__(self):
@@ -12,6 +13,15 @@ class KinectClient:
         )
         self.device = PyK4A(config=self.config, device_id=0)
         self.device.start()
+
+        self.device._set_color_control(cmd=ColorControlCommand.EXPOSURE_TIME_ABSOLUTE,
+                      mode=ColorControlMode.MANUAL, value=2500)
+        self.device._set_color_control(cmd=ColorControlCommand.GAIN,
+                            mode=ColorControlMode.MANUAL, value=1)
+        self.device._set_color_control(cmd=ColorControlCommand.WHITEBALANCE,
+                            mode=ColorControlMode.MANUAL, value=4500)
+        self.device._set_color_control(cmd=ColorControlCommand.CONTRAST, mode=ColorControlMode.MANUAL, value=7)
+        self.device._set_color_control(cmd=ColorControlCommand.BRIGHTNESS, mode=ColorControlMode.MANUAL, value=250)
 
     def start_recording(self, path: str, n_seconds: int = 5) -> None:
         record = PyK4ARecord(device=self.device, config=self.config, path=path)

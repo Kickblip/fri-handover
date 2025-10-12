@@ -7,7 +7,7 @@ RED = (180, 0, 0)
 GREEN = (10, 127, 0)
 BLUE = (30, 58, 138)
 GRAY = (34, 34, 34)
-RECORDING_SECONDS=10
+RECORDING_SECONDS=5
 
 def main():
     
@@ -37,13 +37,11 @@ def main():
 
             if trial % 2 != 0:
                 prompter.show(f"{user1} hands to {user2}", RED); time.sleep(1)
-                prompter.show("Start!", GREEN)
-                kinect_client.start_recording(path=f"{trial}_{user1}_{user2}.mkv", n_seconds=RECORDING_SECONDS)
             else:
                 prompter.show(f"{user2} hands to {user1}", RED); time.sleep(1)
-                prompter.show("Start!", GREEN)
-                kinect_client.start_recording(path=f"{trial}_{user2}_{user1}.mkv", n_seconds=RECORDING_SECONDS)
-
+                
+            prompter.show("Start!", GREEN)
+            kinect_client.start_recording(path=f"{trial}_{user1}_{user2}.mkv", n_seconds=RECORDING_SECONDS)
             prompter.show("Done!", BLUE); time.sleep(0.5)
         
         prompter.show("Recording complete", GRAY); time.sleep(1)

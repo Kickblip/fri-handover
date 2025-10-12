@@ -1,32 +1,15 @@
-"""
-animate_box_mp4.py
-
-Render a 3D animation of the reconstructed box (from *_vertices.csv) and save as MP4.
-- No GUI, no GIFs — MP4 output only (requires ffmpeg in PATH).
-- Resolution is precisely controlled by --width/--height (pixels). Default 1280x720.
-- Equal 3D aspect (no "scrunched" look) via global bounds + set_box_aspect.
-
-Usage:
-  python animate_box_mp4.py /path/to/video_vertices.csv --out box_anim.mp4
-  python animate_box_mp4.py my.csv --out box.mp4 --fps 30 --width 1920 --height 1080 --elev 20 --azim -60 --interp
-"""
-
-
-
-
-# THIS IS ALL JUST TO CREATE THE LITTLE VIDEO ANIMATIONS OF THE BOX'S VERTICES
-# all made with chatgpt
-
-
 import argparse
 import os
 import numpy as np
 import pandas as pd
 import matplotlib
-matplotlib.use("Agg")  # headless, no windows
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
 from matplotlib.animation import FuncAnimation, FFMpegWriter
+
+
+# script for generating cool animations of the box's vertices, made with chatgpt
 
 BOX_EDGES = [(0,1),(1,2),(2,3),(3,0),
              (4,5),(5,6),(6,7),(7,4),
@@ -40,6 +23,49 @@ BOX_FACES = [
     [2,3,7,6],
     [3,0,4,7]
 ]
+
+AXIS_NAMES = ["x", "y", "z"]
+
+def _parse_axes(spec: str):
+    """
+    Parse an axis remap spec like 'x,-y,z' or 'x,z,-y'.
+    Returns (perm, signs), where:
+      - perm[new_axis_index] = old_axis_index
+      - signs[new_axis_index] = +1 or -1
+    """
+    parts = [p.strip().lower() for p in spec.split(",")]
+    if len(parts) != 3:
+        raise ValueError("axes spec must have 3 comma-separated items, e.g. 'x,-y,z'")
+
+    perm = []
+    signs = []
+    used = set()
+    for p in parts:
+        sgn = -1 if p.startswith("-") else 1
+        name = p.lstrip("+-")
+        if name not in AXIS_NAMES:
+            raise ValueError(f"Invalid axis '{p}'. Use x,y,z with optional leading '-'")
+        idx = AXIS_NAMES.index(name)
+        if idx in used:
+            raise ValueError("Duplicate axis in spec")
+        used.add(idx)
+        perm.append(idx)
+        signs.append(sgn)
+    return perm, signs
+
+def apply_axes_remap(verts_Tx8x3, perm, signs):
+    """
+    Apply axis remap to verts with shape (T, 8, 3).
+    new = M @ old, where M is built from perm/signs.
+    """
+    v = verts_Tx8x3.copy()
+    M = np.zeros((3, 3), dtype=float)
+    for new_i, (old_i, s) in enumerate(zip(perm, signs)):
+        M[new_i, old_i] = float(s)
+
+    flat = v.reshape(-1, 3)              # (T*8, 3)
+    flat = (M @ flat.T).T                # apply transform
+    return flat.reshape(v.shape)
 
 def choose_tag_id(df, user_tag):
     if user_tag is not None:
@@ -124,21 +150,32 @@ def main():
     ap.add_argument("--tag-id", type=int, default=None, help="Select a specific tag_id (default: auto)")
     ap.add_argument("--interp", action="store_true", help="Interpolate missing frames")
     ap.add_argument("--bitrate", type=int, default=8000, help="FFmpeg bitrate (kbps)")
+    ap.add_argument(
+        "--axes",
+        type=str,
+        default="x,z,-y",
+        help="Axis remap like 'x,-y,z' (new axes expressed in terms of old). "
+             "Default keeps OpenCV camera: +X right, +Y down, +Z forward."
+    )
     args = ap.parse_args()
 
     if args.out is None:
         base = os.path.splitext(os.path.abspath(args.csv_path))[0]
         args.out = base + "_anim.mp4"
 
+    # Load vertices
     sel_tag, frame_idx, verts = load_vertices(args.csv_path, args.tag_id, args.interp)
+
+    # === Apply axis remap BEFORE computing bounds (so limits/aspect match final coords) ===
+    perm, signs = _parse_axes(args.axes)
+    verts = apply_axes_remap(verts, perm, signs)
+
     T = verts.shape[0]
 
     # Compute global cubic bounds and aspect
     lims = global_bounds(verts, pad=0.08)  # add margin
     mins, maxs = lims[0], lims[1]
-    spans = maxs - mins
-    # Use data-driven box aspect (equal scaling in x,y,z)
-    box_aspect = (1, 1, 1)
+    box_aspect = (1, 1, 1)  # equal scaling in x,y,z
 
     # Figure sizing: inches = pixels / dpi
     fig_w = args.width / args.dpi
@@ -147,11 +184,17 @@ def main():
     fig = plt.figure(figsize=(fig_w, fig_h))
     ax = fig.add_subplot(111, projection="3d")
 
+    # Build pretty axis-label mapping text
+    label_parts = []
+    for new_name, old_idx, s in zip(["X","Y","Z"], perm, signs):
+        sign_txt = "" if s > 0 else "-"
+        label_parts.append(f"{new_name} = {sign_txt}{AXIS_NAMES[old_idx].upper()}")
+
     # Static axes setup
     ax.set_title(f"Box Animation (tag_id={sel_tag})")
-    ax.set_xlabel("X (m)")
-    ax.set_ylabel("Y (m)")
-    ax.set_zlabel("Z (m)")
+    ax.set_xlabel(f"X (m)  [{label_parts[0]}]")
+    ax.set_ylabel(f"Y (m)  [{label_parts[1]}]")
+    ax.set_zlabel(f"Z (m)  [{label_parts[2]}]")
     ax.set_xlim(mins[0], maxs[0])
     ax.set_ylim(mins[1], maxs[1])
     ax.set_zlim(mins[2], maxs[2])
@@ -159,7 +202,6 @@ def main():
     try:
         ax.set_box_aspect(box_aspect)
     except Exception:
-        # Fallback for older Matplotlib: approximate by matching limits to a cube (already done above)
         pass
     ax.view_init(elev=args.elev, azim=args.azim)
 
@@ -214,8 +256,12 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
     anim.save(args.out, writer=writer, dpi=args.dpi, savefig_kwargs={"bbox_inches": "tight"})
     plt.close(fig)
+
+    # Print final info, including mapping
+    mapping_str = ", ".join(label_parts)
     print(f"Saved MP4: {args.out}  ({args.width}x{args.height} @ {args.fps} fps)")
-    print("Coords: COLOR CAMERA frame (OpenCV) => +X right, +Y down, +Z forward; units: meters.")
+    print("Base coords (input): COLOR CAMERA frame (OpenCV) => +X right, +Y down, +Z forward; units: meters.")
+    print(f"Applied axis mapping: {mapping_str}")
 
 if __name__ == "__main__":
     main()
