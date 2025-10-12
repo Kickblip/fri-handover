@@ -11,7 +11,8 @@ from typing import List, Dict, Any, Optional
 # ==== USER CONFIGURATION ====
 # ============================
 # Input/Output Paths
-input_video = Path("1_bhavana_final_neel_final.mkv")      # <-- Change this to your video path
+#input_video = Path("1_bhavana_final_neel_final.mkv")      # <-- Change this to your video path
+input_video = Path("record/trials/2/6_rohan_diego.mkv")
 output_csv = Path("outputs/2_handover_cartesian_combined.csv") # <-- Final CSV with one row per frame
 output_video = Path("outputs/2_output_world_coordinates_preview.mp4") # <-- Optional preview video
 max_hands = 2 # Crucial: Allows detection of two hands
