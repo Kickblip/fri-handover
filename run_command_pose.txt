@@ -1,4 +1,0 @@
-python record/edited_hand_landmarks_stored.py \
-  --input-video demo-content/output_with_hands.mp4 \
-  --output-csv outputs/hands_landmarks_output_with_hands.csv \
-  --output-video outputs/hand_overlay_output_with_hands.mp4

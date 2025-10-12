@@ -1,13 +1,19 @@
 import time
-from helpers import get_names
 from KinectClient import KinectClient
 from PrompterClient import PrompterClient
+from typing import Tuple
+
 
 RED = (180, 0, 0)
 GREEN = (10, 127, 0)
 BLUE = (30, 58, 138)
 GRAY = (34, 34, 34)
 RECORDING_SECONDS=5
+
+def get_names() -> Tuple[str, str]:
+    user1 = input("Enter name for User 1: ").strip().lower()
+    user2 = input("Enter name for User 2: ").strip().lower()
+    return user1, user2
 
 def main():
     
