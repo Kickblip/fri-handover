@@ -6,27 +6,28 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 from typing import Literal, NamedTuple, Optional, Tuple, List
 
-# ==== USER CONFIGURATION: QUATERNION SCRIPT (TWO-HANDS) ====
+# ==== USER CONFIG ====
+# Input: your wide two-hand landmarks CSV
 input_csv = Path("dataset/mediapipe_outputs/csv/2_w_b.csv")
-output_quaternion_csv = Path("dataset/mediapipe_outputs/csv/2_hand_w_b_quaternions.csv")
-
-MAX_HANDS = 2  # matches your extractor
-# ===========================================================
+# Output: wide two-hand quaternions CSV (metadata + quats only)
+output_csv = Path("dataset/mediapipe_outputs/csv/2_w_b_quaternions_wide.csv")
+MAX_HANDS = 2
+# =====================
 
 class HandAxes(NamedTuple):
     ORIGIN: Literal['WRIST'] = 'WRIST'
     FORWARD_TARGET: Literal['MIDDLE_FINGER_MCP'] = 'MIDDLE_FINGER_MCP'
     UP_HINT_TARGET: Literal['INDEX_FINGER_MCP'] = 'INDEX_FINGER_MCP'
 
-AXES_CONFIG = HandAxes()
+AXES = HandAxes()
 
-def lm_cols(base: str, hand_idx: int) -> Tuple[str, str, str]:
+def lm_cols(base: str, idx: int) -> Tuple[str, str, str]:
     b = base.lower()
-    return (f"{b}_world_x_{hand_idx}", f"{b}_world_y_{hand_idx}", f"{b}_world_z_{hand_idx}")
+    return (f"{b}_world_x_{idx}", f"{b}_world_y_{idx}", f"{b}_world_z_{idx}")
 
-def get_landmark_coords(row: pd.Series, landmark: str, hand_idx: int) -> Optional[np.ndarray]:
+def get_lm(row: pd.Series, base: str, idx: int) -> Optional[np.ndarray]:
     try:
-        x_col, y_col, z_col = lm_cols(landmark, hand_idx)
+        x_col, y_col, z_col = lm_cols(base, idx)
         x, y, z = row[x_col], row[y_col], row[z_col]
         if np.isnan(x) or np.isnan(y) or np.isnan(z):
             return None
@@ -34,41 +35,25 @@ def get_landmark_coords(row: pd.Series, landmark: str, hand_idx: int) -> Optiona
     except KeyError:
         return None
 
-def compute_quaternion_for_hand(row: pd.Series, hand_idx: int) -> Optional[np.ndarray]:
-    """
-    Compute (w, x, y, z) quaternion mapping the hand's local frame to world,
-    built from:
-      X (forward) = wrist -> middle_mcp
-      Z (up)      = X x (wrist -> index_mcp)
-      Y (right)   = Z x X
-    """
-    label_col = f"hand_label_{hand_idx}"
-    score_col = f"hand_score_{hand_idx}"
-    label = row.get(label_col, np.nan)
-    score = row.get(score_col, np.nan)
-
-    if pd.isna(label):
+def compute_quat(row: pd.Series, idx: int) -> Optional[np.ndarray]:
+    # Skip if no label for this hand
+    if pd.isna(row.get(f"hand_label_{idx}", np.nan)):
         return None
 
-    # 1) Pull landmarks
-    O = get_landmark_coords(row, AXES_CONFIG.ORIGIN, hand_idx)
-    F_t = get_landmark_coords(row, AXES_CONFIG.FORWARD_TARGET, hand_idx)
-    U_t = get_landmark_coords(row, AXES_CONFIG.UP_HINT_TARGET, hand_idx)
-    if O is None or F_t is None or U_t is None:
+    O  = get_lm(row, AXES.ORIGIN, idx)
+    Ft = get_lm(row, AXES.FORWARD_TARGET, idx)
+    Ut = get_lm(row, AXES.UP_HINT_TARGET, idx)
+    if O is None or Ft is None or Ut is None:
         return None
 
-    # 2) Vectors
-    F_vec = F_t - O
-    U_hint = U_t - O
-
-    nF = np.linalg.norm(F_vec)
-    nU = np.linalg.norm(U_hint)
+    F = Ft - O
+    U = Ut - O
+    nF, nU = np.linalg.norm(F), np.linalg.norm(U)
     if nF == 0 or nU == 0:
         return None
 
-    # 3) Orthonormal basis
-    X = F_vec / nF
-    Z = np.cross(X, U_hint)
+    X = F / nF
+    Z = np.cross(X, U)
     nZ = np.linalg.norm(Z)
     if nZ == 0:
         return None
@@ -79,74 +64,63 @@ def compute_quaternion_for_hand(row: pd.Series, hand_idx: int) -> Optional[np.nd
         return None
     Y = Y / nY
 
-    # Rotation matrix columns are the local axes in world coords
-    R = np.column_stack((X, Y, Z))
-
+    R = np.column_stack((X, Y, Z))  # local->world
     try:
         rot = Rotation.from_matrix(R)
     except ValueError:
         return None
 
-    quat_xyzw = rot.as_quat()      # (x, y, z, w)
-    quat_wxyz = quat_xyzw[[3, 0, 1, 2]]
-    return quat_wxyz
+    q_xyzw = rot.as_quat()
+    q_wxyz = q_xyzw[[3, 0, 1, 2]]
+    return q_wxyz
 
 def main() -> None:
     if not input_csv.exists():
-        raise FileNotFoundError(f"Input CSV not found: {input_csv}")
+        raise FileNotFoundError(input_csv)
 
     df = pd.read_csv(input_csv)
 
-    required_meta = []
+    # Ensure required meta cols exist
+    req = ["time_sec", "frame_index"]
     for i in range(MAX_HANDS):
-        required_meta += [f"hand_label_{i}", f"hand_score_{i}"]
-    for col in ["time_sec", "frame_index"] + required_meta:
-        if col not in df.columns:
-            raise ValueError(f"Missing required column: {col}")
+        req += [f"hand_label_{i}", f"hand_score_{i}"]
+    for c in req:
+        if c not in df.columns:
+            raise ValueError(f"Missing required column: {c}")
 
-    records: List[dict] = []
+    out_rows: List[dict] = []
     for _, row in df.iterrows():
-        t = row["time_sec"]
-        fidx = row["frame_index"]
+        rec = {
+            "time_sec": row["time_sec"],
+            "frame_index": int(row["frame_index"]),
+            "hand_label_0": row.get("hand_label_0", np.nan),
+            "hand_label_1": row.get("hand_label_1", np.nan),
+            "hand_score_0": row.get("hand_score_0", np.nan),
+            "hand_score_1": row.get("hand_score_1", np.nan),
+            "quat_w_0": np.nan, "quat_x_0": np.nan, "quat_y_0": np.nan, "quat_z_0": np.nan,
+            "quat_w_1": np.nan, "quat_x_1": np.nan, "quat_y_1": np.nan, "quat_z_1": np.nan,
+        }
 
         for i in range(MAX_HANDS):
-            label = row.get(f"hand_label_{i}", np.nan)
-            score = row.get(f"hand_score_{i}", np.nan)
-            if pd.isna(label):
-                continue
+            q = compute_quat(row, i)
+            if q is not None:
+                w, x, y, z = q.tolist()
+                rec[f"quat_w_{i}"] = w
+                rec[f"quat_x_{i}"] = x
+                rec[f"quat_y_{i}"] = y
+                rec[f"quat_z_{i}"] = z
 
-            quat = compute_quaternion_for_hand(row, i)
-            if quat is None:
-                continue
+        out_rows.append(rec)
 
-            w, x, y, z = quat.tolist()
-            records.append({
-                "time_sec": t,
-                "frame_index": int(fidx),
-                "hand_index": i,
-                "hand_label": str(label).lower(),
-                "hand_score": float(score) if not pd.isna(score) else np.nan,
-                "quat_w": w,
-                "quat_x": x,
-                "quat_y": y,
-                "quat_z": z,
-            })
-
-    if len(records) == 0:
-        out = pd.DataFrame(columns=[
-            "time_sec", "frame_index", "hand_index", "hand_label", "hand_score",
-            "quat_w", "quat_x", "quat_y", "quat_z",
-        ])
-        out.to_csv(output_quaternion_csv, index=False)
-        print("No valid quaternions computed; wrote header-only CSV.")
-        return
-
-    out = pd.DataFrame.from_records(records)
-    out.sort_values(["frame_index", "hand_index"], inplace=True, kind="mergesort")
-    out.to_csv(output_quaternion_csv, index=False)
-
-    print(f"✅ Successfully computed quaternions for {len(out)} (frame, hand) detections.")
-    print(f"➡️  {output_quaternion_csv.resolve()}")
+    out_df = pd.DataFrame(out_rows, columns=[
+        "time_sec","frame_index",
+        "hand_label_0","hand_label_1","hand_score_0","hand_score_1",
+        "quat_w_0","quat_x_0","quat_y_0","quat_z_0",
+        "quat_w_1","quat_x_1","quat_y_1","quat_z_1"
+    ])
+    out_df.to_csv(output_csv, index=False)
+    print(f"✅ Wrote wide quaternions to: {output_csv.resolve()}")
+    print(f"Rows: {len(out_df)}")
 
 if __name__ == "__main__":
     main()
