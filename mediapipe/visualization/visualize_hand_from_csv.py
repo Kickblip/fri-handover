@@ -11,7 +11,7 @@ from typing import List, Tuple, Any
 # --- Inputs ---
 
 INPUT_CSV_PATH = Path("dataset/mediapipe_outputs/csv/2_w_b.csv") 
-INPUT_VIDEO_PATH  = Path("dataset/mediapipe_outputs/video/2_w_b_2hands.mp4") 
+INPUT_VIDEO_PATH  = Path("dataset/input_video/2_w_b.mkv")  
 
 # --- Outputs ---
 OUTPUT_VIDEO_PATH = Path("dataset/mediapipe_outputs/video/2_w_b_2hands_visualize.mp4")
