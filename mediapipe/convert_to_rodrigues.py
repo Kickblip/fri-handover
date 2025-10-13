@@ -4,90 +4,40 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 from scipy.spatial.transform import Rotation
-from typing import Literal, NamedTuple, Optional, Tuple, List
+from typing import List
 
 # ==== USER CONFIG ====
-input_csv = Path("dataset/mediapipe_outputs/csv/2_w_b.csv")
-output_csv = Path("dataset/mediapipe_outputs/csv/2_w_b_rodrigues.csv")
+# Input: wide quaternions CSV you created earlier
+input_quat_csv = Path("dataset/mediapipe_outputs/csv/2_w_b_quaternions_wide.csv")
+# Output: wide Rodrigues CSV
+output_rodrigues_csv = Path("dataset/mediapipe_outputs/csv/2_w_b_rodrigues_from_quat.csv")
 MAX_HANDS = 2
 # =====================
 
-class HandAxes(NamedTuple):
-    ORIGIN: Literal['WRIST'] = 'WRIST'
-    FORWARD_TARGET: Literal['MIDDLE_FINGER_MCP'] = 'MIDDLE_FINGER_MCP'
-    UP_HINT_TARGET: Literal['INDEX_FINGER_MCP'] = 'INDEX_FINGER_MCP'
-
-AXES = HandAxes()
-
-def lm_cols(base: str, idx: int) -> Tuple[str, str, str]:
-    b = base.lower()
-    return (f"{b}_world_x_{idx}", f"{b}_world_y_{idx}", f"{b}_world_z_{idx}")
-
-def get_lm(row: pd.Series, base: str, idx: int) -> Optional[np.ndarray]:
-    try:
-        x_col, y_col, z_col = lm_cols(base, idx)
-        x, y, z = row[x_col], row[y_col], row[z_col]
-        if np.isnan(x) or np.isnan(y) or np.isnan(z):
-            return None
-        return np.array([x, y, z], dtype=float)
-    except KeyError:
-        return None
-
-def compute_rotvec(row: pd.Series, idx: int) -> Optional[np.ndarray]:
-    # Skip if no label for this hand
-    if pd.isna(row.get(f"hand_label_{idx}", np.nan)):
-        return None
-
-    O  = get_lm(row, AXES.ORIGIN, idx)
-    Ft = get_lm(row, AXES.FORWARD_TARGET, idx)
-    Ut = get_lm(row, AXES.UP_HINT_TARGET, idx)
-    if O is None or Ft is None or Ut is None:
-        return None
-
-    F = Ft - O
-    U = Ut - O
-    nF, nU = np.linalg.norm(F), np.linalg.norm(U)
-    if nF == 0 or nU == 0:
-        return None
-
-    # Build local frame
-    X = F / nF
-    Z = np.cross(X, U)
-    nZ = np.linalg.norm(Z)
-    if nZ == 0:
-        return None
-    Z = Z / nZ
-    Y = np.cross(Z, X)
-    nY = np.linalg.norm(Y)
-    if nY == 0:
-        return None
-    Y = Y / nY
-
-    # Local->World rotation
-    R = np.column_stack((X, Y, Z))
-    try:
-        rot = Rotation.from_matrix(R)
-    except ValueError:
-        return None
-
-    # Rodrigues rotation vector (x, y, z), |v| = angle in radians
-    return rot.as_rotvec()
+def quat_to_rotvec(w: float, x: float, y: float, z: float) -> List[float]:
+    """Convert a single quaternion (w, x, y, z) to Rodrigues vector [rx, ry, rz]."""
+    if any(map(lambda v: pd.isna(v), [w, x, y, z])):
+        return [np.nan, np.nan, np.nan]
+    # SciPy expects [x, y, z, w]
+    r = Rotation.from_quat([x, y, z, w]).as_rotvec()
+    return r.tolist()
 
 def main() -> None:
-    if not input_csv.exists():
-        raise FileNotFoundError(input_csv)
+    if not input_quat_csv.exists():
+        raise FileNotFoundError(f"Input quaternion CSV not found: {input_quat_csv}")
 
-    df = pd.read_csv(input_csv)
+    df = pd.read_csv(input_quat_csv)
 
-    # Ensure required columns
-    req = ["time_sec", "frame_index"]
+    # Ensure expected columns are present
+    required = ["time_sec", "frame_index",
+                "hand_label_0", "hand_label_1", "hand_score_0", "hand_score_1"]
     for i in range(MAX_HANDS):
-        req += [f"hand_label_{i}", f"hand_score_{i}"]
-    for c in req:
-        if c not in df.columns:
-            raise ValueError(f"Missing required column: {c}")
+        required += [f"quat_w_{i}", f"quat_x_{i}", f"quat_y_{i}", f"quat_z_{i}"]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(f"Missing required columns in input: {missing}")
 
-    out_rows: List[dict] = []
+    out_rows = []
     for _, row in df.iterrows():
         rec = {
             "time_sec": row["time_sec"],
@@ -101,11 +51,14 @@ def main() -> None:
         }
 
         for i in range(MAX_HANDS):
-            v = compute_rotvec(row, i)
-            if v is not None:
-                rec[f"rot_vec_x_{i}"] = float(v[0])
-                rec[f"rot_vec_y_{i}"] = float(v[1])
-                rec[f"rot_vec_z_{i}"] = float(v[2])
+            w = row[f"quat_w_{i}"]; x = row[f"quat_x_{i}"]; y = row[f"quat_y_{i}"]; z = row[f"quat_z_{i}"]
+            if pd.isna(w):
+                # leave NaNs if quaternion not present for this hand
+                continue
+            rx, ry, rz = quat_to_rotvec(w, x, y, z)
+            rec[f"rot_vec_x_{i}"] = rx
+            rec[f"rot_vec_y_{i}"] = ry
+            rec[f"rot_vec_z_{i}"] = rz
 
         out_rows.append(rec)
 
@@ -115,8 +68,8 @@ def main() -> None:
         "rot_vec_x_0","rot_vec_y_0","rot_vec_z_0",
         "rot_vec_x_1","rot_vec_y_1","rot_vec_z_1"
     ])
-    out_df.to_csv(output_csv, index=False)
-    print(f"✅ Wrote wide Rodrigues vectors to: {output_csv.resolve()}")
+    out_df.to_csv(output_rodrigues_csv, index=False)
+    print(f"✅ Wrote wide Rodrigues vectors to: {output_rodrigues_csv.resolve()}")
     print(f"Rows: {len(out_df)}")
 
 if __name__ == "__main__":
