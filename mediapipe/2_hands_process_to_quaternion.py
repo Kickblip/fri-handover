@@ -10,7 +10,7 @@ from typing import Literal, NamedTuple, Optional, Tuple, List
 # Input: your wide two-hand landmarks CSV
 input_csv = Path("dataset/mediapipe_outputs/csv/2_w_b.csv")
 # Output: wide two-hand quaternions CSV (metadata + quats only)
-output_csv = Path("dataset/mediapipe_outputs/csv/2_w_b_quaternions_wide.csv")
+output_csv = Path("dataset/mediapipe_outputs/csv/2_w_b_quaternions.csv")
 MAX_HANDS = 2
 # =====================
 
