@@ -14,7 +14,8 @@ INPUT_VIDEO_PATH  = Path("dataset/input_video/2_w_b.mkv")
 
 # --- Outputs ---
 OUTPUT_VIDEO_PATH = Path("dataset/mediapipe_outputs/video/2_w_b_2hands_visualize_closest_pairs.mp4")
-OUTPUT_LINES_CSV_PATH = Path("dataset/mediapipe_outputs/csv/2_w_b_2hands_all_pairs.csv")  # NEW
+OUTPUT_LINES_CSV_PATH = Path("dataset/mediapipe_outputs/csv/2_w_b_2hands_all_pairs.csv")  # per-frame closest pair (if drawn)
+OUTPUT_GLOBAL_MIN_CSV_PATH = Path("dataset/mediapipe_outputs/csv/2_w_b_global_min_pair.csv")  # NEW: single row (global closest)
 
 # --- Parameters ---
 MAX_HANDS = 2
@@ -33,6 +34,9 @@ def get_landmark_feature_names() -> List[str]:
         columns.extend([f"{name}_world_x", f"{name}_world_y", f"{name}_world_z"])
     return columns
 
+def lm_name(idx: int) -> str:
+    return _HAND_LANDMARKS[idx].name.lower()
+
 def row_has_hand(row: pd.Series, feature_names: List[str], hand_idx: int) -> bool:
     """Checks if the given hand's first coordinate exists for this row."""
     first_feat = f"{feature_names[0]}_{hand_idx}"
@@ -43,10 +47,10 @@ def extract_world_coords_from_row(row: pd.Series, landmark_idx: int, hand_idx: i
     Extracts (x,y,z) world coordinates for a single landmark & hand from the CSV row.
     Returns None if any component is missing.
     """
-    lm_name = _HAND_LANDMARKS[landmark_idx].name.lower()
-    x = row.get(f"{lm_name}_world_x_{hand_idx}", np.nan)
-    y = row.get(f"{lm_name}_world_y_{hand_idx}", np.nan)
-    z = row.get(f"{lm_name}_world_z_{hand_idx}", np.nan)
+    name = lm_name(landmark_idx)
+    x = row.get(f"{name}_world_x_{hand_idx}", np.nan)
+    y = row.get(f"{name}_world_y_{hand_idx}", np.nan)
+    z = row.get(f"{name}_world_z_{hand_idx}", np.nan)
     if pd.isna(x) or pd.isna(y) or pd.isna(z):
         return None
     return float(x), float(y), float(z)
@@ -167,11 +171,6 @@ def main():
             # 2) closest landmark indices + 3D distance
             lm_idx0, lm_idx1, min_dist_world = calculate_closest_indices_from_row(row)
 
-            # --- Check Hand Presence via any "score" fields if present (optional) ---
-            # If your CSV doesn't have these, we fall back to presence via world coords check above.
-            hand0_is_present = not pd.isna(row.get('hand_score_0', np.nan))
-            hand1_is_present = not pd.isna(row.get('hand_score_1', np.nan))
-
             # 3) Re-run MediaPipe for 2D image coords for drawing
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             results = hands.process(rgb_frame)
@@ -222,6 +221,8 @@ def main():
                     "frame_index": frame_index,
                     "lm_idx0": lm_idx0,
                     "lm_idx1": lm_idx1,
+                    "lm_name0": lm_name(lm_idx0),
+                    "lm_name1": lm_name(lm_idx1),
                     "world_distance": this_dist if this_dist is not None else min_dist_world,
                     "pt0_x": pt0[0] if pt0 else None,
                     "pt0_y": pt0[1] if pt0 else None,
@@ -262,30 +263,41 @@ def main():
         hands.close()
         writer.release()
 
-        # Save the logged line events CSV
+        # Save the per-frame closest-pair CSV
         if line_events:
             OUTPUT_LINES_CSV_PATH.parent.mkdir(parents=True, exist_ok=True)
             pd.DataFrame(line_events).to_csv(OUTPUT_LINES_CSV_PATH, index=False)
-
-        print(f"\n✅ Visualization video written to {OUTPUT_VIDEO_PATH.resolve()}")
-        if line_events:
             print(f"📝 Logged {len(line_events)} line-drawing events to {OUTPUT_LINES_CSV_PATH.resolve()}")
         else:
             print("ℹ️ No line-drawing events were logged (check detections/CSV alignment).")
 
-        # Print global min summary
+        # Save the single-row GLOBAL MIN CSV
         if np.isfinite(global_min["distance"]):
-            print("\n🔎 Closest overall hands moment:")
-            print(f"   • Frame: {global_min['frame_index']}")
-            print(f"   • Landmarks: Hand0[{global_min['lm_idx0']}], Hand1[{global_min['lm_idx1']}]")
-            print(f"   • 3D world distance: {global_min['distance']:.6f}")
-            if global_min["w0"] and global_min["w1"]:
-                print(f"   • Hand0 world: {global_min['w0']}")
-                print(f"   • Hand1 world: {global_min['w1']}")
-            if global_min["pt0"] and global_min["pt1"]:
-                print(f"   • 2D pixels used: {global_min['pt0']} -> {global_min['pt1']}")
+            gm_row = {
+                "frame_index": global_min["frame_index"],
+                "lm_idx0": global_min["lm_idx0"],
+                "lm_idx1": global_min["lm_idx1"],
+                "lm_name0": lm_name(global_min["lm_idx0"]),
+                "lm_name1": lm_name(global_min["lm_idx1"]),
+                "world_distance": global_min["distance"],
+                "pt0_x": global_min["pt0"][0] if global_min["pt0"] else None,
+                "pt0_y": global_min["pt0"][1] if global_min["pt0"] else None,
+                "pt1_x": global_min["pt1"][0] if global_min["pt1"] else None,
+                "pt1_y": global_min["pt1"][1] if global_min["pt1"] else None,
+                "w0_x": global_min["w0"][0] if global_min["w0"] else None,
+                "w0_y": global_min["w0"][1] if global_min["w0"] else None,
+                "w0_z": global_min["w0"][2] if global_min["w0"] else None,
+                "w1_x": global_min["w1"][0] if global_min["w1"] else None,
+                "w1_y": global_min["w1"][1] if global_min["w1"] else None,
+                "w1_z": global_min["w1"][2] if global_min["w1"] else None,
+            }
+            OUTPUT_GLOBAL_MIN_CSV_PATH.parent.mkdir(parents=True, exist_ok=True)
+            pd.DataFrame([gm_row]).to_csv(OUTPUT_GLOBAL_MIN_CSV_PATH, index=False)
+            print(f"🏁 Global-min pair saved to {OUTPUT_GLOBAL_MIN_CSV_PATH.resolve()}")
         else:
             print("\nℹ️ Could not determine a global minimum (no valid pairs found).")
+
+        print(f"\n✅ Visualization video written to {OUTPUT_VIDEO_PATH.resolve()}")
 
 if __name__ == "__main__":
     main()
