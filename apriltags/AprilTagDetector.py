@@ -4,11 +4,12 @@ import numpy as np
 from pyk4a import PyK4APlayback, CalibrationType
 import os
 import csv
+from pyk4a import ImageFormat
 
 class AprilTagDetector:
     TAG_IDS = {0, 1}
     TAG_SIZE_M = 0.100
-    MAGIC_WEIGHT = 0.65
+    MAGIC_WEIGHT = 0.64
 
     BOX_HALF_X = 0.190 * MAGIC_WEIGHT
     BOX_HALF_Y = 0.270 * MAGIC_WEIGHT
@@ -95,8 +96,10 @@ class AprilTagDetector:
         verts_cam = (self._verts_local @ R.T) + box_mid_cam.ravel()[None,:]
 
         zeros3 = np.zeros((3,1), np.float32)
-        mid2d, _ = cv2.projectPoints(box_mid_cam[None,:,:], zeros3, zeros3, self.K, self.dist)
-        pts2d, _ = cv2.projectPoints(verts_cam.astype(np.float32), zeros3, zeros3, self.K, self.dist)
+        # mid2d, _ = cv2.projectPoints(box_mid_cam[None,:,:], zeros3, zeros3, self.K, self.dist)
+        # pts2d, _ = cv2.projectPoints(verts_cam.astype(np.float32), zeros3, zeros3, self.K, self.dist)
+        mid2d, _ = cv2.projectPoints(box_mid_cam[None,:,:], zeros3, zeros3, self.K, None)
+        pts2d, _ = cv2.projectPoints(verts_cam.astype(np.float32), zeros3, zeros3, self.K, None)
 
         pm = tuple(np.round(mid2d[0,0]).astype(int))
         cv2.circle(img_bgr, pm, 6, (0,255,255), -1)
@@ -107,7 +110,7 @@ class AprilTagDetector:
         for a,b in self._edges:
             pa = tuple(np.round(pts2d[a,0]).astype(int))
             pb = tuple(np.round(pts2d[b,0]).astype(int))
-            cv2.line(img_bgr, pa, pb, (0,255,0), 1)
+            cv2.line(img_bgr, pa, pb, (0,255,0), 2)
 
     def get_poses_from_image(self, img_bgr, frame_idx: int):
         if self.K is None:
@@ -157,6 +160,11 @@ class AprilTagDetector:
         self.csv_writer.writerow(header)
         print(f"Writing vertices to {csv_path}")
 
+    def convert_to_bgra_if_required(self, color_format: ImageFormat, color_image):
+        if color_format == ImageFormat.COLOR_MJPG:
+            color_image = cv2.imdecode(color_image, cv2.IMREAD_COLOR)
+        return color_image
+
     def _close_csv(self):
         if self.csv_file is not None:
             self.csv_file.close()
@@ -166,10 +174,6 @@ class AprilTagDetector:
     def run_on_mkv(self, path: str, save_video: bool):
         if self.K is None:
             self.load_camera_calibration(path)
-
-        cap = cv2.VideoCapture(path, cv2.CAP_FFMPEG)
-        if not cap.isOpened():
-            raise RuntimeError("Failed to open file")
 
         self._open_csv(path)
 
@@ -183,9 +187,12 @@ class AprilTagDetector:
 
         try:
             while True:
-                ok, frame_bgr = cap.read()
-                if not ok:
-                    break
+                try:
+                    capture = self.playback.get_next_capture()
+                except EOFError:
+                    break 
+
+                frame_bgr = self.convert_to_bgra_if_required(self.playback.configuration["color_format"], capture.color)
 
                 self.get_poses_from_image(frame_bgr, frame_idx)
                 frame_idx += 1
@@ -196,17 +203,18 @@ class AprilTagDetector:
                         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
                         self.writer = cv2.VideoWriter(out_path, fourcc, 30, (w, h))
                         if not self.writer.isOpened():
-                            cap.release()
+                            self.playback.close()
                             self._close_csv()
                             raise RuntimeError("Failed to open video writer for output")
                         initialized_writer = True
 
                     self.writer.write(frame_bgr)
         finally:
-            cap.release()
+            self.playback.close()
             if self.writer is not None:
                 print(f"Wrote visualization file to {out_path}")
                 self.writer.release()
                 self.writer = None
             self._close_csv()
             cv2.destroyAllWindows()
+

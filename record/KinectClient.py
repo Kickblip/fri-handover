@@ -6,6 +6,7 @@ class KinectClient:
         self.config = Config(
             # https://unanancyowen.github.io/k4asdk_python_apireference/classk4a_1_1__bindings_1_1k4atypes_1_1_device_configuration.html
             color_format=ImageFormat.COLOR_MJPG,
+            # color_format=ImageFormat.COLOR_BGRA32,
             color_resolution=ColorResolution.RES_1080P,
             depth_mode=DepthMode.NFOV_UNBINNED,
             camera_fps=FPS.FPS_30,
@@ -20,8 +21,9 @@ class KinectClient:
                             mode=ColorControlMode.MANUAL, value=1)
         self.device._set_color_control(cmd=ColorControlCommand.WHITEBALANCE,
                             mode=ColorControlMode.MANUAL, value=4500)
-        self.device._set_color_control(cmd=ColorControlCommand.CONTRAST, mode=ColorControlMode.MANUAL, value=7)
+        self.device._set_color_control(cmd=ColorControlCommand.CONTRAST, mode=ColorControlMode.MANUAL, value=9)
         self.device._set_color_control(cmd=ColorControlCommand.BRIGHTNESS, mode=ColorControlMode.MANUAL, value=250)
+        self.device._set_color_control(cmd=ColorControlCommand.GAIN, mode=ColorControlMode.MANUAL, value=255)
 
     def start_recording(self, path: str, n_seconds: int = 5) -> None:
         record = PyK4ARecord(device=self.device, config=self.config, path=path)
