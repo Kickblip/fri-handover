@@ -8,7 +8,7 @@ from typing import Literal, NamedTuple, Optional, Tuple, List
 
 # ==== USER CONFIG ====
 input_csv = Path("dataset/mediapipe_outputs/csv/2_w_b.csv")
-output_csv = Path("dataset/mediapipe_outputs/csv/2_w_b_rodrigues_wide.csv")
+output_csv = Path("dataset/mediapipe_outputs/csv/2_w_b_rodrigues.csv")
 MAX_HANDS = 2
 # =====================
 
