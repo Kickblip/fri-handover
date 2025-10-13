@@ -10,11 +10,11 @@ from typing import List, Tuple, Any, Optional
 # ============================
 # --- Inputs ---
 INPUT_CSV_PATH = Path("dataset/mediapipe_outputs/csv/2_w_b.csv") 
-INPUT_VIDEO_PATH  = Path("dataset/mediapipe_outputs/video/2_w_b_2hands.mp4") 
+INPUT_VIDEO_PATH  = Path("dataset/input_video/2_w_b.mkv")  
 
 # --- Outputs ---
-OUTPUT_VIDEO_PATH = Path("dataset/mediapipe_outputs/video/2_w_b_2hands_visualize.mp4")
-OUTPUT_LINES_CSV_PATH = Path("dataset/mediapipe_outputs/csv/2_w_b_2hands_closest_pairs.csv")  # NEW
+OUTPUT_VIDEO_PATH = Path("dataset/mediapipe_outputs/video/2_w_b_2hands_visualize_closest_pairs.mp4")
+OUTPUT_LINES_CSV_PATH = Path("dataset/mediapipe_outputs/csv/2_w_b_2hands_all_pairs.csv")  # NEW
 
 # --- Parameters ---
 MAX_HANDS = 2
