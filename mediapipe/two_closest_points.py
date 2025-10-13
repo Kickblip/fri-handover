@@ -15,7 +15,7 @@ INPUT_VIDEO_PATH  = Path("dataset/input_video/2_w_b.mkv")
 # --- Outputs ---
 OUTPUT_VIDEO_PATH = Path("dataset/mediapipe_outputs/video/2_w_b_2hands_visualize_closest_pairs.mp4")
 OUTPUT_LINES_CSV_PATH = Path("dataset/mediapipe_outputs/csv/2_w_b_2hands_all_pairs.csv")  # per-frame closest pair (if drawn)
-OUTPUT_GLOBAL_MIN_CSV_PATH = Path("dataset/mediapipe_outputs/csv/2_w_b_global_min_pair.csv")  # NEW: single row (global closest)
+OUTPUT_GLOBAL_MIN_CSV_PATH = Path("dataset/mediapipe_outputs/csv/2_w_b_closest_pair.csv")  # NEW: single row (global closest)
 
 # --- Parameters ---
 MAX_HANDS = 2
