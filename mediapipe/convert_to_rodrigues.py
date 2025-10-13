@@ -6,8 +6,8 @@ from typing import NamedTuple, Literal
 
 # ==== USER CONFIGURATION FOR RODRIGUES SCRIPT ====
 # NOTE: Uses the same input file as the quaternion script.
-input_csv = Path("outputs/hand_world_landmarks.csv")  
-output_rodrigues_csv = Path("outputs/hand_rodrigues.csv") # <-- Target output file for Rodrigues
+input_csv = Path("dataset/mediapipe_outputs/csv/2_w_b.csv")
+output_rodrigues_csv = Path("dataset/mediapipe_outputs/csv/1hand_rodrigues.csv") # <-- Target output file for Rodrigues
 # ==========================================
 
 # Define the landmarks to use for the local coordinate system

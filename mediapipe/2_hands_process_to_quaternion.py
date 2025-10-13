@@ -8,7 +8,7 @@ from typing import Literal, NamedTuple, Optional, Tuple, List
 
 # ==== USER CONFIGURATION: QUATERNION SCRIPT (TWO-HANDS) ====
 input_csv = Path("dataset/mediapipe_outputs/csv/2_w_b.csv")
-output_quaternion_csv = Path("dataset/mediapipe_outputs/csv/2_w_b_quaternions.csv")
+output_quaternion_csv = Path("dataset/mediapipe_outputs/csv/2_hand_w_b_quaternions.csv")
 
 MAX_HANDS = 2  # matches your extractor
 # ===========================================================
