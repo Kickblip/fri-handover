@@ -1,120 +1,123 @@
+from __future__ import annotations
+
 from pathlib import Path
 import pandas as pd
 import numpy as np
 from scipy.spatial.transform import Rotation
-from typing import NamedTuple, Literal
+from typing import Literal, NamedTuple, Optional, Tuple, List
 
-# ==== USER CONFIGURATION FOR RODRIGUES SCRIPT ====
-# NOTE: Uses the same input file as the quaternion script.
+# ==== USER CONFIG ====
 input_csv = Path("dataset/mediapipe_outputs/csv/2_w_b.csv")
-output_rodrigues_csv = Path("dataset/mediapipe_outputs/csv/1hand_rodrigues.csv") # <-- Target output file for Rodrigues
-# ==========================================
+output_csv = Path("dataset/mediapipe_outputs/csv/2_w_b_rodrigues_wide.csv")
+MAX_HANDS = 2
+# =====================
 
-# Define the landmarks to use for the local coordinate system
 class HandAxes(NamedTuple):
-    """Defines the hand landmarks used to construct the local coordinate system."""
     ORIGIN: Literal['WRIST'] = 'WRIST'
     FORWARD_TARGET: Literal['MIDDLE_FINGER_MCP'] = 'MIDDLE_FINGER_MCP'
     UP_HINT_TARGET: Literal['INDEX_FINGER_MCP'] = 'INDEX_FINGER_MCP'
 
-AXES_CONFIG = HandAxes()
+AXES = HandAxes()
 
-def get_landmark_coords(row: pd.Series, landmark: str) -> np.ndarray:
-    """Extracts (x, y, z) world coordinates for a given landmark from a DataFrame row."""
-    base_name = landmark.lower()
-    x = row[f"{base_name}_world_x (m)"]
-    y = row[f"{base_name}_world_y (m)"]
-    z = row[f"{base_name}_world_z (m)"]
-    return np.array([x, y, z])
+def lm_cols(base: str, idx: int) -> Tuple[str, str, str]:
+    b = base.lower()
+    return (f"{b}_world_x_{idx}", f"{b}_world_y_{idx}", f"{b}_world_z_{idx}")
 
-def compute_rodrigues_vector(row: pd.Series) -> np.ndarray | None:
-    """
-    Computes the Rodrigues rotation vector (x, y, z) that transforms the world frame
-    to the hand's local frame.
-    """
+def get_lm(row: pd.Series, base: str, idx: int) -> Optional[np.ndarray]:
     try:
-        # 1. Get Landmark Coordinates
-        O = get_landmark_coords(row, AXES_CONFIG.ORIGIN)
-        F_target = get_landmark_coords(row, AXES_CONFIG.FORWARD_TARGET)
-        U_hint_target = get_landmark_coords(row, AXES_CONFIG.UP_HINT_TARGET)
-
-        # 2. Define Vectors
-        F_vec = F_target - O
-        U_hint = U_hint_target - O
-        
-        # 3. Build Orthonormal Basis (Right-Handed System: X=Forward, Z=Up, Y=Right)
-        X_axis = F_vec / np.linalg.norm(F_vec)
-        
-        # Z-axis (Up)
-        Z_axis = np.cross(X_axis, U_hint)
-        Z_axis = Z_axis / np.linalg.norm(Z_axis)
-        
-        # Y-axis (Right)
-        Y_axis = np.cross(Z_axis, X_axis)
-        Y_axis = Y_axis / np.linalg.norm(Y_axis)
-
-        # Rotation matrix (R: Local -> World)
-        rotation_matrix = np.column_stack((X_axis, Y_axis, Z_axis))
-        
-        # 4. Convert Rotation Matrix to SciPy Rotation Object
-        rotation = Rotation.from_matrix(rotation_matrix)
-        
-        # 5. Extract Rodrigues Vector (Rotation Vector)
-        # The vector is (x, y, z), where its magnitude is the rotation angle in radians.
-        rot_vec_xyz = rotation.as_rotvec() 
-        
-        return rot_vec_xyz
-        
-    except np.linalg.LinAlgError:
-        print(f"Warning: Singular matrix encountered at frame {row['frame_index']} for hand {row['hand_index']}. Skipping.")
-        return None
+        x_col, y_col, z_col = lm_cols(base, idx)
+        x, y, z = row[x_col], row[y_col], row[z_col]
+        if np.isnan(x) or np.isnan(y) or np.isnan(z):
+            return None
+        return np.array([x, y, z], dtype=float)
     except KeyError:
-        print(f"Warning: Missing landmark data at frame {row['frame_index']} for hand {row['hand_index']}. Skipping.")
         return None
 
-def main_conversion_rodrigues() -> None:
-    """Main function to load data, compute Rodrigues vectors, and save the new CSV."""
+def compute_rotvec(row: pd.Series, idx: int) -> Optional[np.ndarray]:
+    # Skip if no label for this hand
+    if pd.isna(row.get(f"hand_label_{idx}", np.nan)):
+        return None
+
+    O  = get_lm(row, AXES.ORIGIN, idx)
+    Ft = get_lm(row, AXES.FORWARD_TARGET, idx)
+    Ut = get_lm(row, AXES.UP_HINT_TARGET, idx)
+    if O is None or Ft is None or Ut is None:
+        return None
+
+    F = Ft - O
+    U = Ut - O
+    nF, nU = np.linalg.norm(F), np.linalg.norm(U)
+    if nF == 0 or nU == 0:
+        return None
+
+    # Build local frame
+    X = F / nF
+    Z = np.cross(X, U)
+    nZ = np.linalg.norm(Z)
+    if nZ == 0:
+        return None
+    Z = Z / nZ
+    Y = np.cross(Z, X)
+    nY = np.linalg.norm(Y)
+    if nY == 0:
+        return None
+    Y = Y / nY
+
+    # Local->World rotation
+    R = np.column_stack((X, Y, Z))
+    try:
+        rot = Rotation.from_matrix(R)
+    except ValueError:
+        return None
+
+    # Rodrigues rotation vector (x, y, z), |v| = angle in radians
+    return rot.as_rotvec()
+
+def main() -> None:
     if not input_csv.exists():
-        raise FileNotFoundError(f"Input CSV not found: {input_csv}")
+        raise FileNotFoundError(input_csv)
 
     df = pd.read_csv(input_csv)
-    df_hands = df[df['hand_label'].notna()].copy()
-    
-    if df_hands.empty:
-        print("No valid hand detections with label found in the input CSV. Outputting header-only CSV.")
-        empty_df = pd.DataFrame(columns=['time_sec', 'frame_index', 'hand_index', 'hand_label', 'hand_score', 'rot_vec_x', 'rot_vec_y', 'rot_vec_z'])
-        empty_df.to_csv(output_rodrigues_csv, index=False)
-        return
 
-    print(f"Processing {len(df_hands)} hand detections for Rodrigues Vector output...")
-    
-    # Apply the computation function row-wise
-    rot_vectors = df_hands.apply(compute_rodrigues_vector, axis=1)
-    
-    # Filter out rows where computation failed
-    valid_vectors = rot_vectors.dropna()
-    valid_indices = valid_vectors.index
-    
-    # Create the Rodrigues Vector DataFrame
-    rot_vec_df = pd.DataFrame(
-        valid_vectors.tolist(),
-        index=valid_indices,
-        columns=['rot_vec_x', 'rot_vec_y', 'rot_vec_z']
-    )
-    
-    # Select the core columns we want to keep
-    core_cols = ['time_sec', 'frame_index', 'hand_index', 'hand_label', 'hand_score']
-    result_df = df_hands.loc[valid_indices, core_cols].copy()
-    
-    # Merge the core data with the new Rodrigues vector data
-    result_df = pd.concat([result_df, rot_vec_df], axis=1)
-    
-    # Save to CSV
-    result_df.to_csv(output_rodrigues_csv, index=False)
-    
-    print(f"✅ Successfully computed Rodrigues Vectors for {len(result_df)} detections.")
-    print(f"Results written to {output_rodrigues_csv.resolve()}")
+    # Ensure required columns
+    req = ["time_sec", "frame_index"]
+    for i in range(MAX_HANDS):
+        req += [f"hand_label_{i}", f"hand_score_{i}"]
+    for c in req:
+        if c not in df.columns:
+            raise ValueError(f"Missing required column: {c}")
 
+    out_rows: List[dict] = []
+    for _, row in df.iterrows():
+        rec = {
+            "time_sec": row["time_sec"],
+            "frame_index": int(row["frame_index"]),
+            "hand_label_0": row.get("hand_label_0", np.nan),
+            "hand_label_1": row.get("hand_label_1", np.nan),
+            "hand_score_0": row.get("hand_score_0", np.nan),
+            "hand_score_1": row.get("hand_score_1", np.nan),
+            "rot_vec_x_0": np.nan, "rot_vec_y_0": np.nan, "rot_vec_z_0": np.nan,
+            "rot_vec_x_1": np.nan, "rot_vec_y_1": np.nan, "rot_vec_z_1": np.nan,
+        }
+
+        for i in range(MAX_HANDS):
+            v = compute_rotvec(row, i)
+            if v is not None:
+                rec[f"rot_vec_x_{i}"] = float(v[0])
+                rec[f"rot_vec_y_{i}"] = float(v[1])
+                rec[f"rot_vec_z_{i}"] = float(v[2])
+
+        out_rows.append(rec)
+
+    out_df = pd.DataFrame(out_rows, columns=[
+        "time_sec","frame_index",
+        "hand_label_0","hand_label_1","hand_score_0","hand_score_1",
+        "rot_vec_x_0","rot_vec_y_0","rot_vec_z_0",
+        "rot_vec_x_1","rot_vec_y_1","rot_vec_z_1"
+    ])
+    out_df.to_csv(output_csv, index=False)
+    print(f"✅ Wrote wide Rodrigues vectors to: {output_csv.resolve()}")
+    print(f"Rows: {len(out_df)}")
 
 if __name__ == "__main__":
-    main_conversion_rodrigues()
+    main()
