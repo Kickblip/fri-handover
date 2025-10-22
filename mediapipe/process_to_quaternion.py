@@ -8,9 +8,10 @@ from typing import Literal, NamedTuple, Optional, Tuple, List
 
 # ==== USER CONFIG ====
 # Input: your wide two-hand landmarks CSV
-input_csv = Path("dataset/mediapipe_outputs/csv/2_w_b.csv")
-# Output: wide two-hand quaternions CSV (metadata + quats only)
-output_csv = Path("dataset/mediapipe_outputs/csv/2_w_b_quaternions.csv")
+# input_csv = Path("dataset/mediapipe_outputs/csv/world/name_of_file_extracted_from _input_video_world.csv") 
+# # Output: wide two-hand quaternions CSV (metadata + quats only)
+# output_csv = Path("dataset/mediapipe_outputs/csv/quaternions/name_of_file_extracted_from _input_video_quaternions.csv") 
+
 MAX_HANDS = 2
 # =====================
 

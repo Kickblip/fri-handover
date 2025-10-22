@@ -7,10 +7,10 @@ from scipy.spatial.transform import Rotation
 from typing import List
 
 # ==== USER CONFIG ====
-# Input: wide quaternions CSV you created earlier
-input_quat_csv = Path("dataset/mediapipe_outputs/csv/2_w_b_quaternions.csv")
-# Output: wide Rodrigues CSV
-output_rodrigues_csv = Path("dataset/mediapipe_outputs/csv/2_w_b_rodrigues_from_quat.csv")
+# # Input: wide quaternions CSV you created earlier
+# input_quat_csv = Path("dataset/mediapipe_outputs/csv/quaternions/name_of_file_extracted_from _input_video_quaternions.csv")
+# # Output: wide Rodrigues CSV
+# output_rodrigues_csv = Path("dataset/mediapipe_outputs/csv/rodrigues//name_of_file_extracted_from _input_video_rodriguez.csv")
 MAX_HANDS = 2
 # =====================
 

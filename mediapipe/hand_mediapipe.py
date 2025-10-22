@@ -11,10 +11,10 @@ from typing import List, Dict, Any, Optional
 # ==== USER CONFIGURATION ====
 # ============================
 # Input/Output Paths
-#input_video = Path("1_bhavana_final_neel_final.mkv")      # <-- Change this to your video path
-input_video = Path("dataset/input_video/2_w_b.mkv")      # <-- Change this to your video path
-output_csv = Path("dataset/mediapipe_outputs/csv/2_w_b.csv") # <-- Final CSV with one row per frame
-output_video = Path("dataset/mediapipe_outputs/video/2_w_b_2hands.mp4") # <-- Optional preview video
+
+# input_video = Path("dataset/input_video/name_of_input.mkv")      # <-- Change this to your video path
+# output_csv = Path("dataset/mediapipe_outputs/csv/world/name_of_file_extracted_from _input_video_world.csv") # <-- Final CSV with one row per frame
+# output_video = Path("dataset/mediapipe_outputs/video/world/name_of_file_extracted_from _input_video_world.mp4") # <-- Optional preview video
 max_hands = 2 # Crucial: Allows detection of two hands
 min_detection_confidence = 0.5
 min_tracking_confidence = 0.5

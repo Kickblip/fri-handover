@@ -8,14 +8,14 @@ from typing import List, Tuple, Any, Optional
 # ============================ 
 # ==== CONFIGURATION ====
 # ============================
-# --- Inputs ---
-INPUT_CSV_PATH = Path("dataset/mediapipe_outputs/csv/2_w_b.csv") 
-INPUT_VIDEO_PATH  = Path("dataset/input_video/2_w_b.mkv")  
+# # --- Inputs ---
+# INPUT_CSV_PATH = Path("dataset/mediapipe_outputs/csv/rodrigues/name_of_file_extracted_from _input_video_world.csv")
+# INPUT_VIDEO_PATH  = Path("dataset/input_video/name_of_input.mkv")
 
-# --- Outputs ---
-OUTPUT_VIDEO_PATH = Path("dataset/mediapipe_outputs/video/2_w_b_2hands_visualize_closest_pairs.mp4")
-OUTPUT_LINES_CSV_PATH = Path("dataset/mediapipe_outputs/csv/2_w_b_2hands_all_pairs.csv")  # per-frame closest pair (if drawn)
-OUTPUT_GLOBAL_MIN_CSV_PATH = Path("dataset/mediapipe_outputs/csv/2_w_b_closest_pair.csv")  # NEW: single row (global closest)
+# # --- Outputs ---
+# OUTPUT_VIDEO_PATH = Path("dataset/mediapipe_outputs/video/closest_point/name_of_file_extracted_from_input_video_closest_pair.mp4")
+# OUTPUT_LINES_CSV_PATH = Path("dataset/mediapipe_outputs/csv/all_pairs_distance/name_of_file_extracted_from_input_video_all_pairs.csv")  # per-frame closest pair (if drawn)
+# OUTPUT_GLOBAL_MIN_CSV_PATH = Path("dataset/mediapipe_outputs/csv/closest_pair_distance/name_of_file_extracted_from_input_video_closest_pairs.csv")  # NEW: single row (global closest)
 
 # --- Parameters ---
 MAX_HANDS = 2
