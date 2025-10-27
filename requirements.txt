@@ -8,4 +8,5 @@ opencv-python>=4.9
 torch>=2.2,<2.5
 pygame>=2.5
 pupil-apriltags>=1.0.4
+open3d
 chumpy @ git+https://github.com/mattloper/chumpy@9b045ff5d6588a24a0bab52c83f032e2ba433e17
