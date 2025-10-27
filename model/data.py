@@ -36,16 +36,93 @@ def list_stems() -> List[str]:
 # ---------- feature loaders ----------
 def load_rodrigues(stem: str) -> Tuple[np.ndarray, List[int]]:
     """
-    Expected columns: frame|frame_index|frame_idx, hand (0/1), then numeric Rodrigues features.
-    Returns:
-      X_hands [T, 2*D_hand] = hand0 || hand1 (zeros if a hand is missing),
-      frames  list[int] of frame indices.
-    """
-    df = _read_csv(RODR_DIR / f"{stem}_rodrigues.csv")
-    fcol = _pick_col(df, "frame", ["frame_index", "frame_idx"])
-    hcol = _pick_col(df, "hand",  ["which", "side"])
+    Supports TWO schemas:
 
+    (A) WIDE (your file): one row per frame with columns like:
+        time_sec, frame_index, hand_label_0, hand_label_1, hand_score_0, ...
+        rot_vec_x_0, rot_vec_y_0, rot_vec_z_0, rot_vec_x_1, rot_vec_y_1, rot_vec_z_1, ...
+        -> We concatenate all features for hand 0 and hand 1 into [hand0 || hand1].
+
+    (B) LONG: rows like (frame, hand, <features...>) where hand ∈ {0,1}.
+        -> We gather the two hands per frame; zeros if one is missing.
+
+    Returns:
+      X_hands : [T, 2*D_hand]  (zeros padded if a hand is missing or a column is absent)
+      frames  : [T] list of frame indices (int)
+    """
+    import re
+
+    df = _read_csv(RODR_DIR / f"{stem}_rodrigues.csv")
+
+    # --- detect frame column
+    fcol = _pick_col(df, "frame", ["frame_index", "frame_idx"])
+
+    # --------- PATH (A): WIDE FORMAT ---------
+    # Heuristic: look for any columns ending with _0 or _1 (e.g., rot_vec_x_0)
+    has_wide_suffix = any(re.search(r"_([01])$", c) for c in df.columns)
+
+    if has_wide_suffix:
+        # Build a consistent feature list for each hand by base-name (strip trailing _0/_1)
+        def split_suffix(col: str):
+            m = re.search(r"(.*)_([01])$", col)
+            return (m.group(1), int(m.group(2))) if m else (None, None)
+
+        # Collect per-hand column sets
+        hand0_cols = []
+        hand1_cols = []
+        base_names = set()
+
+        for c in df.columns:
+            base, h = split_suffix(c)
+            if base is None:
+                continue
+            base_names.add(base)
+            if h == 0:
+                hand0_cols.append((base, c))
+            elif h == 1:
+                hand1_cols.append((base, c))
+
+        # Sort by base name for deterministic ordering
+        base_names = sorted(base_names)
+        # Build ordered column lists (if a base is missing for a hand, we will fill zeros)
+        h0_map = {b: c for (b, c) in hand0_cols}
+        h1_map = {b: c for (b, c) in hand1_cols}
+
+        frames = df[fcol].astype(int).tolist()
+        X_rows = []
+
+        for _, row in df.iterrows():
+            # hand 0 vector
+            h0_vec = []
+            for b in base_names:
+                if b in h0_map:
+                    h0_vec.append(row[h0_map[b]])
+                else:
+                    h0_vec.append(0.0)
+            # hand 1 vector
+            h1_vec = []
+            for b in base_names:
+                if b in h1_map:
+                    h1_vec.append(row[h1_map[b]])
+                else:
+                    h1_vec.append(0.0)
+
+            # If there are any non-feature columns (like labels/scores) that also match _0/_1,
+            # they’ll be included; that’s okay as long as they are numeric. If not numeric,
+            # coerce to 0.
+            h0_vec = [float(x) if pd.notna(x) else 0.0 for x in h0_vec]
+            h1_vec = [float(x) if pd.notna(x) else 0.0 for x in h1_vec]
+
+            X_rows.append(np.array(h0_vec + h1_vec, dtype=np.float32))
+
+        X = np.stack(X_rows, axis=0) if len(X_rows) else np.zeros((0, 0), np.float32)
+        return X, frames
+
+    # --------- PATH (B): LONG FORMAT ---------
+    # Expect 'hand' column and one row per (frame, hand).
+    hcol = _pick_col(df, "hand", ["which", "side"])
     feat_cols = [c for c in df.columns if c not in (fcol, hcol)]
+
     frames = sorted(map(int, df[fcol].unique()))
     X = []
     for f in frames:
@@ -55,13 +132,10 @@ def load_rodrigues(stem: str) -> Tuple[np.ndarray, List[int]]:
         h0v = h0[0] if len(h0) else np.zeros(len(feat_cols), np.float32)
         h1v = h1[0] if len(h1) else np.zeros(len(feat_cols), np.float32)
         X.append(np.concatenate([h0v, h1v], axis=0))
+
     return np.stack(X, 0), frames
 
 def load_vertices(stem: str, frames: List[int]) -> np.ndarray:
-    """
-    Vertices file is flattened xyz triplets across columns (order agnostic).
-    Missing file or frame rows -> zeros so shapes still align.
-    """
     p = VERTICES_DIR / f"{stem}_vertices.csv"
     if not p.exists():
         return np.zeros((len(frames), 0), np.float32)
