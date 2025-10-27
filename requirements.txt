@@ -1,12 +1,11 @@
 wheel
-opencv-python
-scipy
-matplotlib
-tqdm
-numpy
-pygame
-pupil-apriltags
-pyk4a
-torch
-pandas
-git+https://github.com/mattloper/chumpy
+numpy>=1.26,<2.0
+scipy>=1.11,<1.13
+pandas>=2.0,<2.3
+matplotlib>=3.8,<3.9
+tqdm>=4.66
+opencv-python>=4.9
+torch>=2.2,<2.5
+pygame>=2.5
+pupil-apriltags>=1.0.4
+chumpy @ git+https://github.com/mattloper/chumpy@9b045ff5d6588a24a0bab52c83f032e2ba433e17
