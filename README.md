@@ -12,8 +12,9 @@ installing from github for now since this isnt reflected on pypi:
 https://github.com/mattloper/chumpy/pull/48
 
 
-To run model that predicts 5 frames into the future for the receiving hand and can generate a video visualization. Run:
+
 # Train
+To run model that predicts 5 frames into the future for the receiving hand and can generate a video visualization. Run:
 ```
 python -m model.train
 ```
