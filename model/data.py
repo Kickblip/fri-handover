@@ -312,8 +312,23 @@ def split_stems():
 
 def build_loaders():
     tr, va, te = split_stems()
-    mk = lambda ss, shuf: DataLoader(
-        HandoverDataset(ss, SEQ_LEN, SEQ_STRIDE, FUTURE_FRAMES),
-        batch_size=BATCH_SIZE, shuffle=shuf, drop_last=False
-    )
-    return mk(tr, True), mk(va, False), mk(te, False)
+    
+    def mk(ss, shuf):
+        """Create DataLoader, handling empty datasets."""
+        try:
+            dataset = HandoverDataset(ss, SEQ_LEN, SEQ_STRIDE, FUTURE_FRAMES)
+            if len(dataset) == 0:
+                return None
+            return DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=shuf, drop_last=False)
+        except RuntimeError as e:
+            print(f"Error creating dataset: {e}")
+            return None
+    
+    train_ld = mk(tr, True)
+    val_ld = mk(va, False)
+    test_ld = mk(te, False)
+    
+    if train_ld is None:
+        raise RuntimeError("Train dataset is empty. Check that data files exist and have enough frames.")
+    
+    return train_ld, val_ld, test_ld

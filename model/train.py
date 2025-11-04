@@ -65,12 +65,13 @@ def train():
         # validate
         model.eval()
         val_losses = []
-        with torch.no_grad():
-            for x, y in val_ld:
-                x, y = x.to(device), y.to(device)
-                pred = model(x)
-                loss = criterion(pred, y)
-                val_losses.append(loss.item())
+        if val_ld is not None:
+            with torch.no_grad():
+                for x, y in val_ld:
+                    x, y = x.to(device), y.to(device)
+                    pred = model(x)
+                    loss = criterion(pred, y)
+                    val_losses.append(loss.item())
 
         if val_losses:
             val_loss = sum(val_losses) / len(val_losses)
@@ -96,7 +97,7 @@ def train():
             print(f"Epoch {epoch:02d} | TrainLoss {tr_loss:.6f} | (no VAL set)")
 
     # optional TEST summary
-    if test_ld:
+    if test_ld is not None:
         state = torch.load(CKPT_PATH, map_location=device)
         model.load_state_dict(state["model"]); model.eval()
         test_losses = []
