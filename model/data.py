@@ -181,17 +181,21 @@ def load_receiving_hand_world(stem: str) -> Tuple[np.ndarray, List[int]]:
                   c.endswith("_world_y_1") or c.endswith("_world_z_1")]
     
     if not hand1_cols:
-        # Fallback: try to find any columns with _1 suffix
-        hand1_cols = [c for c in df.columns if re.search(r"_([xyz])_1$", c)]
+        # Fallback: try to find any columns with _1 suffix and x/y/z pattern
+        hand1_cols = [c for c in df.columns if re.search(r"_world_[xyz]_1$", c)]
     
     if not hand1_cols:
-        raise ValueError(f"No hand_1 world coordinates found in {p}")
+        # Last resort: any column with _1 that looks like coordinates
+        all_cols = list(df.columns)
+        print(f"Available columns in {p.name}: {all_cols[:10]}... (showing first 10)")
+        raise ValueError(f"No hand_1 world coordinates found in {p}. Expected columns ending with '_world_x_1', '_world_y_1', or '_world_z_1'")
     
     # Sort columns to ensure consistent ordering (x, y, z for each landmark)
     hand1_cols = sorted(hand1_cols)
     
-    # Extract features
-    X = df[hand1_cols].to_numpy(np.float32)
+    # Extract features - convert to numeric, coercing errors to NaN
+    # This handles any non-numeric values (strings, empty cells) by converting them to NaN
+    X = df[hand1_cols].apply(pd.to_numeric, errors='coerce').to_numpy(np.float32)
     
     # Replace NaN with 0
     X = np.nan_to_num(X, nan=0.0)
@@ -277,11 +281,20 @@ class HandoverDataset(Dataset):
                     X_input, X_target, frames, seq_len, stride, future_frames
                 )
                 
+                if len(xs) == 0:
+                    print(f"Warning: No valid sequences created for {s} (need at least {seq_len + future_frames} frames)")
+                    continue
+                
                 for i in range(len(xs)):
                     self.samples.append((xs[i], ys[i]))
             except Exception as e:
+                import traceback
                 print(f"Warning: Skipping {s} due to error: {e}")
+                print(f"  Traceback: {traceback.format_exc()}")
                 continue
+        
+        if len(self.samples) == 0:
+            raise RuntimeError(f"No valid samples created from {len(stems)} stems. Check that data files exist and have enough frames.")
 
     def __len__(self):  
         return len(self.samples)
