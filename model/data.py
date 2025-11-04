@@ -7,7 +7,7 @@ Data utilities:
 """
 from __future__ import annotations
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 import random
 import re
 import numpy as np
@@ -303,15 +303,41 @@ class HandoverDataset(Dataset):
         return self.samples[i]
 
 # ---------- splits / loaders ----------
-def split_stems():
-    """Deterministic 70/15/15 split by stem (video-level)."""
-    stems = list_stems()
+def split_stems(stems_to_use: Optional[List[str]] = None):
+    """
+    Deterministic split by stem (video-level).
+    If stems_to_use is provided, only uses those stems.
+    With only 2 stems: puts both in training (no validation/test split).
+    """
+    if stems_to_use is None:
+        stems = list_stems()
+    else:
+        # Filter to only requested stems that exist
+        all_stems = list_stems()
+        stems = [s for s in stems_to_use if s in all_stems]
+        if len(stems) < len(stems_to_use):
+            missing = set(stems_to_use) - set(stems)
+            print(f"Warning: Some requested stems not found: {missing}")
+    
+    if len(stems) == 0:
+        return [], [], []
+    
     random.seed(1337); random.shuffle(stems)
+    
+    # With only 2 stems, put both in training
+    if len(stems) <= 2:
+        return stems, [], []  # All training, no val/test
+    
+    # Otherwise use 70/15/15 split
     n = len(stems); n_tr = int(0.7*n); n_val = int(0.15*n)
     return stems[:n_tr], stems[n_tr:n_tr+n_val], stems[n_tr+n_val:]
 
-def build_loaders():
-    tr, va, te = split_stems()
+def build_loaders(stems_to_use: Optional[List[str]] = None):
+    """
+    Build data loaders.
+    If stems_to_use is provided, only uses those stems for training.
+    """
+    tr, va, te = split_stems(stems_to_use)
     
     def mk(ss, shuf):
         """Create DataLoader, handling empty datasets."""

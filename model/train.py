@@ -5,6 +5,7 @@ Train the transformer to predict future frames of receiving hand:
 - Best model saved to dataset/model_output/checkpoints/handover_transformer.pt
 """
 from __future__ import annotations
+from typing import List, Optional
 import torch
 import torch.nn as nn
 from torch.optim import AdamW
@@ -22,16 +23,28 @@ def set_seed(seed: int = 1337):
     if torch.cuda.is_available(): torch.cuda.manual_seed_all(seed)
 
 # ----- training loop -----
-def train():
+def train(stems_to_use: Optional[List[str]] = None):
+    """
+    Train the model.
+    If stems_to_use is provided, only trains on those specific stems.
+    """
     set_seed(1337)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"🟢 Device: {device}")
 
-    train_ld, val_ld, test_ld = build_loaders()
+    train_ld, val_ld, test_ld = build_loaders(stems_to_use)
 
-    stems = list_stems()
+    # Get stems used for training
+    if stems_to_use is None:
+        stems = list_stems()
+    else:
+        all_stems = list_stems()
+        stems = [s for s in stems_to_use if s in all_stems]
+    
     if not stems:
-        raise RuntimeError("No stems discovered in Rodrigues folder.")
+        raise RuntimeError("No stems available for training.")
+    
+    print(f"Using stems: {stems}")
     
     # Get input and output dimensions
     in_dim = load_features(stems[0])[0].shape[1]
@@ -112,4 +125,6 @@ def train():
             print(f"TEST Loss: {test_loss:.6f}")
 
 if __name__ == "__main__":
-    train()
+    # Train only on these two specific files
+    stems_to_use = ["1_w_b", "2_w_b"]
+    train(stems_to_use=stems_to_use)
