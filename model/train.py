@@ -108,7 +108,33 @@ def train(stems_to_use: Optional[List[str]] = None):
                     break
         else:
             print(f"Epoch {epoch:02d} | TrainLoss {tr_loss:.6f} | (no VAL set)")
+            # If no validation set, save checkpoint based on training loss improvement
+            if tr_loss < best_val_loss or epoch == 1:
+                best_val_loss = tr_loss
+                torch.save({
+                    "model": model.state_dict(),
+                    "in_dim": in_dim,
+                    "out_dim": out_dim,
+                    "cfg": dict(D_MODEL=D_MODEL, N_HEAD=N_HEAD, N_LAYERS=N_LAYERS,
+                                FFN_DIM=FFN_DIM, DROPOUT=DROPOUT, FUTURE_FRAMES=FUTURE_FRAMES)
+                }, CKPT_PATH)
+                if epoch == 1:
+                    print(f"✅ Saved initial checkpoint — {CKPT_PATH}")
+                else:
+                    print(f"✅ New best TrainLoss {best_val_loss:.6f} — saved {CKPT_PATH}")
 
+    # Save final model if no checkpoint was saved (e.g., no validation set)
+    if not CKPT_PATH.exists():
+        print(f"\n💾 Saving final model checkpoint (no validation set used)...")
+        torch.save({
+            "model": model.state_dict(),
+            "in_dim": in_dim,
+            "out_dim": out_dim,
+            "cfg": dict(D_MODEL=D_MODEL, N_HEAD=N_HEAD, N_LAYERS=N_LAYERS,
+                        FFN_DIM=FFN_DIM, DROPOUT=DROPOUT, FUTURE_FRAMES=FUTURE_FRAMES)
+        }, CKPT_PATH)
+        print(f"✅ Saved final checkpoint — {CKPT_PATH}")
+    
     # optional TEST summary
     if test_ld is not None:
         state = torch.load(CKPT_PATH, map_location=device)

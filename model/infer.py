@@ -14,6 +14,12 @@ from .data import load_features, load_receiving_hand_world
 from .model import HandoverTransformer
 
 def load_checkpoint(path: Path, device: str):
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Model checkpoint not found: {path}\n"
+            f"Please train the model first by running:\n"
+            f"  python3 -m model.train"
+        )
     ckpt = torch.load(path, map_location=device)
     model = HandoverTransformer(
         in_dim=ckpt["in_dim"],

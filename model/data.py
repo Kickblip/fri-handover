@@ -83,11 +83,47 @@ def load_rodrigues(stem: str) -> Tuple[np.ndarray, List[int]]:
             elif h == 1:
                 hand1_cols.append((base, c))
 
-        # Sort by base name for deterministic ordering
-        base_names = sorted(base_names)
-        # Build ordered column lists (if a base is missing for a hand, we will fill zeros)
+        # Build maps first
         h0_map = {b: c for (b, c) in hand0_cols}
         h1_map = {b: c for (b, c) in hand1_cols}
+        
+        # Filter out non-numeric columns (like hand_label_*, hand_score_*)
+        # Only keep numeric feature columns (like rot_vec_*, etc.)
+        # Use pandas' built-in numeric detection
+        numeric_base_names = []
+        for b in base_names:
+            # Check if this base name has numeric values by trying to convert the column
+            is_numeric = False
+            # Check both hands for this base name
+            for h_map in [h0_map, h1_map]:
+                if b in h_map:
+                    col_name = h_map[b]
+                    # Try converting the entire column to numeric
+                    try:
+                        converted = pd.to_numeric(df[col_name], errors='coerce')
+                        # Check if we got any valid numeric values (not all NaN)
+                        if not converted.isna().all():
+                            # Check if the non-null values are actually numeric
+                            non_null = converted.dropna()
+                            if len(non_null) > 0:
+                                is_numeric = True
+                                break
+                    except (ValueError, TypeError):
+                        # Not numeric, skip this base name
+                        pass
+            if is_numeric:
+                numeric_base_names.append(b)
+        
+        print(f"    Found {len(base_names)} base names, filtered to {len(numeric_base_names)} numeric: {numeric_base_names[:5]}...")
+        
+        if len(numeric_base_names) == 0:
+            raise ValueError(f"No numeric columns found for {stem}. All columns may be non-numeric (strings).")
+        
+        # Sort by base name for deterministic ordering
+        numeric_base_names = sorted(numeric_base_names)
+        # Filter maps to only numeric columns
+        h0_map = {b: c for (b, c) in hand0_cols if b in numeric_base_names}
+        h1_map = {b: c for (b, c) in hand1_cols if b in numeric_base_names}
 
         frames = df[fcol].astype(int).tolist()
         X_rows = []
@@ -95,28 +131,36 @@ def load_rodrigues(stem: str) -> Tuple[np.ndarray, List[int]]:
         for _, row in df.iterrows():
             # hand 0 vector
             h0_vec = []
-            for b in base_names:
+            for b in numeric_base_names:
                 if b in h0_map:
-                    h0_vec.append(row[h0_map[b]])
+                    val = row[h0_map[b]]
+                    # Convert to float, handling strings and NaN
+                    try:
+                        h0_vec.append(float(val) if pd.notna(val) else 0.0)
+                    except (ValueError, TypeError):
+                        h0_vec.append(0.0)
                 else:
                     h0_vec.append(0.0)
             # hand 1 vector
             h1_vec = []
-            for b in base_names:
+            for b in numeric_base_names:
                 if b in h1_map:
-                    h1_vec.append(row[h1_map[b]])
+                    val = row[h1_map[b]]
+                    # Convert to float, handling strings and NaN
+                    try:
+                        h1_vec.append(float(val) if pd.notna(val) else 0.0)
+                    except (ValueError, TypeError):
+                        h1_vec.append(0.0)
                 else:
                     h1_vec.append(0.0)
 
-            # If there are any non-feature columns (like labels/scores) that also match _0/_1,
-            # they’ll be included; that’s okay as long as they are numeric. If not numeric,
-            # coerce to 0.
-            h0_vec = [float(x) if pd.notna(x) else 0.0 for x in h0_vec]
-            h1_vec = [float(x) if pd.notna(x) else 0.0 for x in h1_vec]
-
             X_rows.append(np.array(h0_vec + h1_vec, dtype=np.float32))
 
-        X = np.stack(X_rows, axis=0) if len(X_rows) else np.zeros((0, 0), np.float32)
+        if len(X_rows) == 0:
+            raise ValueError(f"No valid rows created for {stem}")
+        
+        X = np.stack(X_rows, axis=0)
+        print(f"    Created feature array shape: {X.shape} from {len(frames)} frames")
         return X, frames
 
     # --------- PATH (B): LONG FORMAT ---------
@@ -147,12 +191,41 @@ def load_vertices(stem: str, frames: List[int]) -> np.ndarray:
     if not feat_cols:
         return np.zeros((len(frames), 0), np.float32)
 
-    rows = {int(r[fcol]): r[feat_cols].to_numpy(np.float32) for _, r in df.iterrows()}
-    D = len(feat_cols)
+    # Filter to only numeric columns and convert safely
+    numeric_feat_cols = []
+    for col in feat_cols:
+        # Try converting to numeric - if it works, keep it
+        try:
+            converted = pd.to_numeric(df[col], errors='coerce')
+            if not converted.isna().all():
+                numeric_feat_cols.append(col)
+        except (ValueError, TypeError):
+            # Skip non-numeric columns
+            continue
+    
+    if not numeric_feat_cols:
+        # No numeric columns found, return empty
+        return np.zeros((len(frames), 0), np.float32)
+    
+    # Convert to numeric with coercion
+    df_numeric = df[[fcol] + numeric_feat_cols].copy()
+    df_numeric[numeric_feat_cols] = df_numeric[numeric_feat_cols].apply(pd.to_numeric, errors='coerce')
+    
+    # Build rows dictionary
+    rows = {}
+    for _, row in df_numeric.iterrows():
+        frame_idx = int(row[fcol])
+        feat_values = row[numeric_feat_cols].to_numpy(np.float32)
+        rows[frame_idx] = feat_values
+    
+    D = len(numeric_feat_cols)
     X = np.zeros((len(frames), D), np.float32)
     for i, f in enumerate(frames):
         if f in rows:
             X[i] = rows[f]
+    
+    # Replace any remaining NaN with 0
+    X = np.nan_to_num(X, nan=0.0)
     return X
 
 def load_features(stem: str) -> Tuple[np.ndarray, List[int]]:
@@ -230,7 +303,16 @@ def make_sequences_with_targets(X_input: np.ndarray, X_target: np.ndarray,
         X_input = X_input[:min_len]
         X_target = X_target[:min_len]
     
-    for end in range(seq_len - 1, len(X_input) - future_frames, stride):
+    # Calculate valid range for sequences
+    min_required = seq_len + future_frames  # Need at least this many frames
+    if len(X_input) < min_required:
+        print(f"      WARNING: Only {len(X_input)} frames available, need at least {min_required} (seq_len={seq_len} + future_frames={future_frames})")
+        return torch.empty(0), torch.empty(0)
+    
+    valid_range = range(seq_len - 1, len(X_input) - future_frames, stride)
+    print(f"      Creating sequences: range({seq_len - 1}, {len(X_input) - future_frames}, {stride}) = {list(valid_range)[:5]}... (showing first 5)")
+    
+    for end in valid_range:
         start = end - (seq_len - 1)
         
         # Input sequence
@@ -251,8 +333,10 @@ def make_sequences_with_targets(X_input: np.ndarray, X_target: np.ndarray,
         ys.append(y_future)
     
     if not xs:
+        print(f"      WARNING: No sequences created (valid range was empty)")
         return torch.empty(0), torch.empty(0)
     
+    print(f"      Created {len(xs)} sequences")
     Xs = torch.tensor(np.stack(xs, 0), dtype=torch.float32)
     Ys = torch.tensor(np.stack(ys, 0), dtype=torch.float32)
     return Xs, Ys
@@ -264,14 +348,18 @@ class HandoverDataset(Dataset):
         for s in stems:
             try:
                 # Load input features (both hands + vertices)
+                print(f"  Loading {s}...")
                 X_input, frames_input = load_features(s)
+                print(f"    Input features shape: {X_input.shape}, frames: {len(frames_input)}")
                 
                 # Load target features (receiving hand world coordinates)
                 X_target, frames_target = load_receiving_hand_world(s)
+                print(f"    Target features shape: {X_target.shape}, frames: {len(frames_target)}")
                 
                 # Align frames - use common frames
                 # Simple approach: use minimum length
                 min_len = min(len(X_input), len(X_target))
+                print(f"    Aligning to {min_len} frames (min of input={len(X_input)}, target={len(X_target)})")
                 X_input = X_input[:min_len]
                 X_target = X_target[:min_len]
                 frames = frames_input[:min_len]
@@ -280,13 +368,15 @@ class HandoverDataset(Dataset):
                 xs, ys = make_sequences_with_targets(
                     X_input, X_target, frames, seq_len, stride, future_frames
                 )
+                print(f"    Created {len(xs)} sequences from {min_len} frames")
                 
                 if len(xs) == 0:
-                    print(f"Warning: No valid sequences created for {s} (need at least {seq_len + future_frames} frames)")
+                    print(f"    WARNING: No valid sequences created for {s} (need at least {seq_len + future_frames} = {seq_len + future_frames} frames, have {min_len})")
                     continue
                 
                 for i in range(len(xs)):
                     self.samples.append((xs[i], ys[i]))
+                print(f"    Added {len(xs)} samples from {s}")
             except Exception as e:
                 import traceback
                 print(f"Warning: Skipping {s} due to error: {e}")
@@ -337,21 +427,40 @@ def build_loaders(stems_to_use: Optional[List[str]] = None):
     Build data loaders.
     If stems_to_use is provided, only uses those stems for training.
     """
+    print(f"Building loaders with stems_to_use={stems_to_use}")
     tr, va, te = split_stems(stems_to_use)
+    print(f"Split result: train={len(tr)} stems, val={len(va)} stems, test={len(te)} stems")
     
     def mk(ss, shuf):
         """Create DataLoader, handling empty datasets."""
+        if not ss:
+            print(f"  No stems provided for this split")
+            return None
+        
+        print(f"  Creating dataset from {len(ss)} stems: {ss}")
         try:
             dataset = HandoverDataset(ss, SEQ_LEN, SEQ_STRIDE, FUTURE_FRAMES)
             if len(dataset) == 0:
+                print(f"  Dataset created but has 0 samples")
                 return None
+            print(f"  Dataset created with {len(dataset)} samples")
             return DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=shuf, drop_last=False)
         except RuntimeError as e:
-            print(f"Error creating dataset: {e}")
+            print(f"  Error creating dataset: {e}")
+            import traceback
+            print(f"  Full traceback:\n{traceback.format_exc()}")
+            return None
+        except Exception as e:
+            print(f"  Unexpected error: {e}")
+            import traceback
+            print(f"  Full traceback:\n{traceback.format_exc()}")
             return None
     
+    print("\nCreating train loader...")
     train_ld = mk(tr, True)
+    print("\nCreating val loader...")
     val_ld = mk(va, False)
+    print("\nCreating test loader...")
     test_ld = mk(te, False)
     
     if train_ld is None:

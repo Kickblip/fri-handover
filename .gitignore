@@ -2,6 +2,35 @@
 SMPLH_female.pkl
 SMPLH_male.pkl
 venv/
-__pycache__
+myenv/
+env/
+ENV/
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
 trials/
 *.mkv
+
+# Model outputs (checkpoints, predictions, videos)
+dataset/model_output/
+*.pt
+*.pth
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python packages (should be in requirements.txt, not committed)
+*.egg-info/
+dist/
+build/
