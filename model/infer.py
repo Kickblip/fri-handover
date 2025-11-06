@@ -6,11 +6,13 @@ Inference:
 from __future__ import annotations
 from pathlib import Path
 import argparse
+import re
 import numpy as np
+import pandas as pd
 import torch
 import cv2
-from .config import CKPT_PATH, PRED_DIR, VIDEO_DIR, SEQ_LEN, FUTURE_FRAMES
-from .data import load_features, load_receiving_hand_world
+from .config import CKPT_PATH, PRED_DIR, VIDEO_DIR, SEQ_LEN, FUTURE_FRAMES, WORLD_DIR, ROOT
+from .data import load_features, load_receiving_hand_world, _read_csv, _pick_col
 from .model import HandoverTransformer
 
 def load_checkpoint(path: Path, device: str):
@@ -63,10 +65,82 @@ def predict_future_frames(stem: str, device=None):
     
     return predictions, pred_frames
 
+def load_giving_hand_world(stem: str) -> tuple[np.ndarray, list[int]]:
+    """
+    Load giving hand (hand_0) world coordinates.
+    Returns world coordinates for all 21 landmarks (63 features: x,y,z for each).
+    """
+    p = WORLD_DIR / f"{stem}_world.csv"
+    if not p.exists():
+        raise FileNotFoundError(f"Missing world CSV: {p}")
+    
+    df = _read_csv(p)
+    fcol = _pick_col(df, "frame", ["frame_index", "frame_idx"])
+    frames = df[fcol].astype(int).tolist()
+    
+    # Extract all hand_0 world coordinate columns (ending with _0)
+    hand0_cols = [c for c in df.columns if c.endswith("_world_x_0") or 
+                  c.endswith("_world_y_0") or c.endswith("_world_z_0")]
+    
+    if not hand0_cols:
+        # Fallback: try to find any columns with _0 suffix and x/y/z pattern
+        hand0_cols = [c for c in df.columns if re.search(r"_world_[xyz]_0$", c)]
+    
+    if not hand0_cols:
+        all_cols = list(df.columns)
+        print(f"Available columns in {p.name}: {all_cols[:10]}... (showing first 10)")
+        raise ValueError(f"No hand_0 world coordinates found in {p}. Expected columns ending with '_world_x_0', '_world_y_0', or '_world_z_0'")
+    
+    # Sort columns to ensure consistent ordering (x, y, z for each landmark)
+    hand0_cols = sorted(hand0_cols)
+    
+    # Extract features - convert to numeric, coercing errors to NaN
+    X = df[hand0_cols].apply(pd.to_numeric, errors='coerce').to_numpy(np.float32)
+    
+    # Replace NaN with 0
+    X = np.nan_to_num(X, nan=0.0)
+    
+    return X, frames
+
+def find_original_video(stem: str) -> Path:
+    """Find the original video file by stem name."""
+    input_video_dir = ROOT / "input_video"
+    # Try common video extensions
+    for ext in [".mkv", ".mp4", ".avi", ".mov"]:
+        video_path = input_video_dir / f"{stem}{ext}"
+        if video_path.exists():
+            return video_path
+    
+    # Fallback: try world video from mediapipe outputs
+    world_video = ROOT / "mediapipe_outputs" / "video" / "world" / f"{stem}_world.mp4"
+    if world_video.exists():
+        return world_video
+    
+    raise FileNotFoundError(
+        f"Could not find original video for stem '{stem}'. "
+        f"Tried: {input_video_dir / f'{stem}.mkv'}, {input_video_dir / f'{stem}.mp4'}, "
+        f"and {world_video}"
+    )
+
+def project_to_image(X: float, Y: float, Z: float, width: int, height: int) -> tuple[int, int] | None:
+    """Project 3D world coordinates to 2D image coordinates using camera intrinsics."""
+    # Camera intrinsics - adjust if your setup differs
+    fx, fy = 600, 600
+    cx, cy = width // 2, height // 2  # Center for video
+    
+    if Z <= 0:
+        return None
+    
+    x_pix = int((fx * X / Z) + cx)
+    y_pix = int((fy * Y / Z) + cy)
+    
+    return x_pix, y_pix
+
 def create_video(predictions: list, frames: list, stem: str, fps: int = 30):
     """
-    Create a video visualization of predicted future frames.
-    Shows 3D hand landmarks projected to 2D.
+    Create a video visualization with:
+    - Predicted receiving hand (hand_1) 21 points in RED
+    - Giving hand (hand_0) 21 points in GREEN on the original video
     """
     if not predictions:
         print("No predictions to visualize")
@@ -74,69 +148,99 @@ def create_video(predictions: list, frames: list, stem: str, fps: int = 30):
     
     # Get dimensions
     future_frames, out_dim = predictions[0].shape
-    n_landmarks = out_dim // 3  # Assuming x,y,z for each landmark
+    n_landmarks = out_dim // 3  # Assuming x,y,z for each landmark (should be 21)
+    
+    # Load original video
+    original_video_path = find_original_video(stem)
+    print(f"Loading original video: {original_video_path}")
+    cap = cv2.VideoCapture(str(original_video_path))
+    if not cap.isOpened():
+        raise RuntimeError(f"Could not open video: {original_video_path}")
+    
+    video_fps = cap.get(cv2.CAP_PROP_FPS) or fps
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    
+    # Load giving hand (hand_0) world coordinates
+    print(f"Loading giving hand (hand_0) coordinates...")
+    giving_hand_coords, giving_frames = load_giving_hand_world(stem)
+    # Reshape to [T, 21, 3]
+    giving_hand_coords = giving_hand_coords.reshape(len(giving_frames), n_landmarks, 3)
+    
+    # Create a mapping from frame index to giving hand coordinates
+    giving_hand_dict = {f: giving_hand_coords[i] for i, f in enumerate(giving_frames)}
     
     # Create video writer
     video_path = VIDEO_DIR / f"{stem}_predicted_future.mp4"
     video_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    # Set up video dimensions
-    width, height = 800, 600
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    writer = cv2.VideoWriter(str(video_path), fourcc, fps, (width, height))
+    writer = cv2.VideoWriter(str(video_path), fourcc, video_fps, (width, height))
     
-    # Create visualization for each prediction
-    for pred_idx, (pred, frame) in enumerate(zip(predictions, frames)):
+    # Create a mapping from prediction frame to predictions
+    # Each prediction is for a specific frame and predicts future_frames ahead
+    pred_dict = {}
+    for pred, frame in zip(predictions, frames):
         # pred: [future_frames, out_dim] -> reshape to [future_frames, n_landmarks, 3]
         pred_3d = pred.reshape(future_frames, n_landmarks, 3)
-        
-        # Create a frame showing all future frames side by side or as animation
-        # For simplicity, show each future frame as a separate frame in the video
-        for f_idx in range(future_frames):
-            frame_img = np.zeros((height, width, 3), dtype=np.uint8)
+        pred_dict[frame] = pred_3d
+    
+    current_frame_idx = 0
+    
+    try:
+        while True:
+            ret, frame_img = cap.read()
+            if not ret:
+                break
             
-            # Get landmarks for this future frame
-            landmarks = pred_3d[f_idx]  # [n_landmarks, 3]
+            current_frame_idx += 1
             
-            # Normalize and project to 2D screen coordinates
-            # Center and scale the landmarks
-            if landmarks.shape[0] > 0:
-                center = landmarks.mean(axis=0)
-                landmarks_centered = landmarks - center
-                scale = np.abs(landmarks_centered).max() if np.abs(landmarks_centered).max() > 0 else 1.0
-                if scale > 0:
-                    landmarks_centered = landmarks_centered / scale * min(width, height) * 0.3
+            # Draw giving hand (hand_0) in GREEN from original video
+            if current_frame_idx in giving_hand_dict:
+                giving_hand = giving_hand_dict[current_frame_idx]  # [21, 3]
+                for landmark in giving_hand:
+                    X, Y, Z = landmark[0], landmark[1], landmark[2]
+                    if np.isnan(X) or np.isnan(Y) or np.isnan(Z):
+                        continue
+                    uv = project_to_image(X, Y, Z, width, height)
+                    if uv is not None:
+                        u, v = uv
+                        if 0 <= u < width and 0 <= v < height:
+                            cv2.circle(frame_img, (u, v), 4, (0, 255, 0), -1, lineType=cv2.LINE_AA)
             
-            # Project to 2D (use x,z as x,y for top-down view, or x,y for front view)
-            screen_coords = []
-            for lm in landmarks_centered:
-                # Front view: x,y -> screen
-                x = int(lm[0] + width // 2)
-                y = int(-lm[1] + height // 2)  # Flip y for screen coordinates
-                screen_coords.append((x, y))
+            # Draw predicted receiving hand (hand_1) in RED
+            # Use the most recent prediction that covers this frame
+            best_pred_frame = None
+            best_future_idx = None
             
-            # Draw landmarks
-            for i, (x, y) in enumerate(screen_coords):
-                if 0 <= x < width and 0 <= y < height:
-                    cv2.circle(frame_img, (x, y), 3, (0, 255, 0), -1)
+            for pred_frame, pred_3d in pred_dict.items():
+                # Check if current_frame_idx is within the future frames of this prediction
+                if pred_frame < current_frame_idx <= pred_frame + future_frames:
+                    future_idx = current_frame_idx - pred_frame - 1  # Which future frame this is
+                    if 0 <= future_idx < future_frames:
+                        # Use the most recent prediction (largest pred_frame that still covers this frame)
+                        if best_pred_frame is None or pred_frame > best_pred_frame:
+                            best_pred_frame = pred_frame
+                            best_future_idx = future_idx
             
-            # Draw connections (simplified hand skeleton)
-            # Wrist to finger bases
-            if len(screen_coords) >= 5:
-                wrist = screen_coords[0]
-                for i in range(1, 5):
-                    if i < len(screen_coords):
-                        cv2.line(frame_img, wrist, screen_coords[i], (255, 255, 255), 1)
-            
-            # Add text overlay
-            cv2.putText(frame_img, f"Frame {frame} -> Future {f_idx+1}", 
-                       (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-            cv2.putText(frame_img, f"Prediction {pred_idx+1}/{len(predictions)}", 
-                       (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            # Draw the best prediction if found
+            if best_pred_frame is not None:
+                predicted_hand = pred_dict[best_pred_frame][best_future_idx]  # [21, 3]
+                for landmark in predicted_hand:
+                    X, Y, Z = landmark[0], landmark[1], landmark[2]
+                    if np.isnan(X) or np.isnan(Y) or np.isnan(Z):
+                        continue
+                    uv = project_to_image(X, Y, Z, width, height)
+                    if uv is not None:
+                        u, v = uv
+                        if 0 <= u < width and 0 <= v < height:
+                            cv2.circle(frame_img, (u, v), 4, (0, 0, 255), -1, lineType=cv2.LINE_AA)
             
             writer.write(frame_img)
     
-    writer.release()
+    finally:
+        cap.release()
+        writer.release()
+    
     print(f"✓ Created video: {video_path.resolve()}")
 
 def main():
