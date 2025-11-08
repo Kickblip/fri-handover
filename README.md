@@ -11,7 +11,12 @@ pip installing chumpy directly causes import errors for SMPL models.
 installing from github for now since this isnt reflected on pypi:
 https://github.com/mattloper/chumpy/pull/48
 
-
+# Record
+To run the recording script, after creating a virtual environment with the steps above, run these commands
+```
+pip install pyk4a
+pip install pygame
+```
 
 # Train
 To run model that predicts 5 frames into the future for the receiving hand and can generate a video visualization. Run:
