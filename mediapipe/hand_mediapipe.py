@@ -24,6 +24,7 @@ except ImportError:
 # ============================
 # Input/Output Paths
 # input_video = Path("dataset/input_video/name_of_input.mkv")
+# input_video = Path("dataset/mediapipe_ouputs/video/world/1_w_b_world.mp4") ???
 # output_csv = Path("dataset/mediapipe_outputs/csv/world/name_of_file_extracted_from_input_video_world.csv")
 # output_video = Path("dataset/mediapipe_outputs/video/world/name_of_file_extracted_from_input_video_world.mp4")
 
