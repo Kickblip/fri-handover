@@ -1,17 +1,15 @@
 import cv2
 from pyk4a import ImageFormat
 import mediapipe as mp
-from mediapipe.tasks import python
-from mediapipe.tasks.python import vision
-from mediapipe import solutions
-from mediapipe.framework.formats import landmark_pb2
-import numpy as np
 import os
 import csv
+import numpy as np
+from pyk4a import PyK4APlayback, CalibrationType
+from typing import List
 
 class HandsDetector:
 
-    def __init__(self, path, debug=True):
+    def __init__(self, path, playback, debug=True):
         self.mp_hands = mp.solutions.hands
         self.mp_drawing = mp.solutions.drawing_utils
 
@@ -23,9 +21,32 @@ class HandsDetector:
             model_complexity=1,
         )
 
+        self.fps = 30.0
+        self.calib = playback.calibration
+        self.frames_xyz: List[List[np.ndarray]] = []
+
         self.csv_file = None
         self.csv_writer = None
         self._open_csv(path)
+    
+    def to_3d(self, calib, u: int, v: int, depth_mm: float) -> np.ndarray:
+        """
+        Convert pixel coordinate + depth to 3D using Azure Kinect calibration.
+        Returns (x,y,z) in meters. If invalid, returns NaNs.
+        """
+        if depth_mm <= 0:
+            return np.array([np.nan, np.nan, np.nan], dtype=np.float32)
+
+        try:
+            x_mm, y_mm, z_mm = calib.convert_2d_to_3d(
+                (u, v),
+                float(depth_mm),
+                CalibrationType.COLOR,
+                CalibrationType.COLOR,
+            )
+            return np.array([x_mm, y_mm, z_mm], dtype=np.float32) / 1000.0  # mm to m
+        except Exception:
+            return np.array([np.nan, np.nan, np.nan], dtype=np.float32)
     
     def convert_to_bgra_if_required(self, color_format: ImageFormat, color_image):
         if color_format == ImageFormat.COLOR_MJPG:
@@ -39,10 +60,13 @@ class HandsDetector:
         self.csv_writer = csv.writer(self.csv_file)
 
         header = ["frame_idx"]
-        for i in range(21):
-            header += [f"h1_{i}_x", f"h1_{i}_y"]
-        for i in range(21):
-            header += [f"h2_{i}_x", f"h2_{i}_y"]
+        for h in range(2): # h0, h1
+            for i in range(21): # 21 landmarks per hand
+                header += [
+                    f"h{h}_lm{i}_x",
+                    f"h{h}_lm{i}_y",
+                    f"h{h}_lm{i}_z",
+                ]
         self.csv_writer.writerow(header)
 
     def _close_csv(self):
@@ -52,10 +76,19 @@ class HandsDetector:
             self.csv_writer = None
 
     def run_on_frame(self, capture, color_format, frame_idx, visualization_frame):
-        capture_frame = self.convert_to_bgra_if_required(color_format, capture.color)
-
-        frame_rgb = cv2.cvtColor(capture_frame, cv2.COLOR_BGR2RGB)
+        depth = capture.transformed_depth
+        if depth is None:
+            depth = capture.depth
+            if depth is None:
+                self.frames_xyz.append([])
+                return
+            
+        color = self.convert_to_bgra_if_required(color_format, capture.color)
+        frame_rgb = cv2.cvtColor(color, cv2.COLOR_BGR2RGB)
         results = self.hands.process(frame_rgb)
+
+        hands_xyz: List[np.ndarray] = []
+        h, w, _ = color.shape
 
         if results.multi_hand_landmarks:
             for lm_set in results.multi_hand_landmarks:
@@ -64,18 +97,51 @@ class HandsDetector:
                     lm_set,
                     self.mp_hands.HAND_CONNECTIONS,
                 )
+            
+            for lm_set in results.multi_hand_landmarks:
+                pts = []
 
-        # for hand in detection_result.hand_landmarks:
-        #     for landmark in hand:
-        #         row_for_csv.append(landmark.x)
-        #         row_for_csv.append(landmark.y)            
+                for lm in lm_set.landmark:
+                    u = int(lm.x * w)
+                    v = int(lm.y * h)
 
-        # if self.csv_writer is not None:
-        #         self.csv_writer.writerows(row_for_csv)
+                    if 0 <= u < w and 0 <= v < h:
+                        d_mm = float(depth[v, u])
+                        xyz = self.to_3d(self.calib, u, v, d_mm)
+                    else:
+                        xyz = np.array([np.nan, np.nan, np.nan], dtype=np.float32)
+
+                    pts.append(xyz)
+
+                pts_arr = np.array(pts, dtype=np.float32)
+                hands_xyz.append(pts_arr)
+
+        else:
+            hands_xyz = []
+
+        self.frames_xyz.append(hands_xyz)
 
         return visualization_frame
 
     def clear(self):
+
+        rows = []
+        for fidx, hands_in_frame in enumerate(self.frames_xyz):
+            row = [fidx]
+
+            for h in range(2):
+                if h < len(hands_in_frame):
+                    pts = hands_in_frame[h]
+                else:
+                    pts = np.full((21, 3), np.nan, dtype=np.float32)
+
+                for i in range(21):
+                    x, y, z = pts[i]
+                    row.extend([float(x), float(y), float(z)])
+
+            rows.append(row)
+
+        self.csv_writer.writerows(rows)
         self._close_csv()
 
       

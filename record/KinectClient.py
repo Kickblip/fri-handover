@@ -16,7 +16,7 @@ class KinectClient:
         self.device.start()
 
         self.device._set_color_control(cmd=ColorControlCommand.EXPOSURE_TIME_ABSOLUTE,
-                      mode=ColorControlMode.MANUAL, value=3000)
+                      mode=ColorControlMode.MANUAL, value=2500)
         self.device._set_color_control(cmd=ColorControlCommand.WHITEBALANCE,
                             mode=ColorControlMode.MANUAL, value=4500)
         
