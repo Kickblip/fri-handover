@@ -17,13 +17,14 @@ class KinectClient:
 
         self.device._set_color_control(cmd=ColorControlCommand.EXPOSURE_TIME_ABSOLUTE,
                       mode=ColorControlMode.MANUAL, value=2500)
-        self.device._set_color_control(cmd=ColorControlCommand.GAIN,
-                            mode=ColorControlMode.MANUAL, value=1)
         self.device._set_color_control(cmd=ColorControlCommand.WHITEBALANCE,
                             mode=ColorControlMode.MANUAL, value=4500)
-        self.device._set_color_control(cmd=ColorControlCommand.CONTRAST, mode=ColorControlMode.MANUAL, value=9)
-        self.device._set_color_control(cmd=ColorControlCommand.BRIGHTNESS, mode=ColorControlMode.MANUAL, value=250)
-        self.device._set_color_control(cmd=ColorControlCommand.GAIN, mode=ColorControlMode.MANUAL, value=255)
+        
+        self.device._set_color_control(cmd=ColorControlCommand.BRIGHTNESS, mode=ColorControlMode.MANUAL, value=255)
+        self.device._set_color_control(cmd=ColorControlCommand.CONTRAST, mode=ColorControlMode.MANUAL, value=10)
+        self.device._set_color_control(cmd=ColorControlCommand.SATURATION, mode=ColorControlMode.MANUAL, value=40)
+        self.device._set_color_control(cmd=ColorControlCommand.SHARPNESS, mode=ColorControlMode.MANUAL, value=4)
+        self.device._set_color_control(cmd=ColorControlCommand.GAIN, mode=ColorControlMode.MANUAL, value=1)
 
     def start_recording(self, path: str, n_seconds: int = 5) -> None:
         record = PyK4ARecord(device=self.device, config=self.config, path=path)
