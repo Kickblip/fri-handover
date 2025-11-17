@@ -12,9 +12,16 @@ import csv
 class HandsDetector:
 
     def __init__(self, path, debug=True):
-        self.mp_drawing = mp.solutions.drawing_utils
-        self.mp_drawing_styles = mp.solutions.drawing_styles
         self.mp_hands = mp.solutions.hands
+        self.mp_drawing = mp.solutions.drawing_utils
+
+        self.hands = self.mp_hands.Hands(
+            static_image_mode=False,
+            max_num_hands=2,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5,
+            model_complexity=1,
+        )
 
         self.csv_file = None
         self.csv_writer = None
@@ -24,28 +31,6 @@ class HandsDetector:
         if color_format == ImageFormat.COLOR_MJPG:
             color_image = cv2.imdecode(color_image, cv2.IMREAD_COLOR)
         return color_image
-
-    def draw_landmarks_on_image(self, rgb_image, detection_result):
-        hand_landmarks_list = detection_result.hand_landmarks
-        annotated_image = np.copy(rgb_image)
-
-        # Loop through the detected hands to visualize.
-        for idx in range(len(hand_landmarks_list)):
-            hand_landmarks = hand_landmarks_list[idx]
-
-            # Draw the hand landmarks.
-            hand_landmarks_proto = landmark_pb2.NormalizedLandmarkList()
-            hand_landmarks_proto.landmark.extend([
-            landmark_pb2.NormalizedLandmark(x=landmark.x, y=landmark.y, z=landmark.z) for landmark in hand_landmarks
-            ])
-            solutions.drawing_utils.draw_landmarks(
-            annotated_image,
-            hand_landmarks_proto,
-            solutions.hands.HAND_CONNECTIONS,
-            solutions.drawing_styles.get_default_hand_landmarks_style(),
-            solutions.drawing_styles.get_default_hand_connections_style())
-
-        return annotated_image
     
     def _open_csv(self, mkv_path: str):
         root, _ = os.path.splitext(mkv_path)
@@ -68,20 +53,17 @@ class HandsDetector:
 
     def run_on_frame(self, capture, color_format, frame_idx, visualization_frame):
         capture_frame = self.convert_to_bgra_if_required(color_format, capture.color)
-        format_frame = cv2.cvtColor(capture_frame, cv2.COLOR_BGRA2RGBA)
-        row_for_csv = [frame_idx]
 
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGBA, data=format_frame)
+        frame_rgb = cv2.cvtColor(capture_frame, cv2.COLOR_BGR2RGB)
+        results = self.hands.process(frame_rgb)
 
-        base_options = python.BaseOptions(model_asset_path='./record/pipeline/hand_landmarker.task')
-        options = vision.HandLandmarkerOptions(base_options=base_options,
-                                            num_hands=2, running_mode=mp.tasks.vision.RunningMode.IMAGE)
-        detector = vision.HandLandmarker.create_from_options(options)
-
-        # detection_result.hand_landmarks For each detected hand, a list of 21 normalized 2D landmarks in image coordinates
-        detection_result = detector.detect(mp_image)
-
-        annotated_image = self.draw_landmarks_on_image(visualization_frame, detection_result)
+        if results.multi_hand_landmarks:
+            for lm_set in results.multi_hand_landmarks:
+                self.mp_drawing.draw_landmarks(
+                    visualization_frame,
+                    lm_set,
+                    self.mp_hands.HAND_CONNECTIONS,
+                )
 
         # for hand in detection_result.hand_landmarks:
         #     for landmark in hand:
@@ -91,7 +73,7 @@ class HandsDetector:
         # if self.csv_writer is not None:
         #         self.csv_writer.writerows(row_for_csv)
 
-        return annotated_image
+        return visualization_frame
 
     def clear(self):
         self._close_csv()
