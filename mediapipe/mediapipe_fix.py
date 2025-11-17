@@ -19,7 +19,7 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 # ============================
 
 input_video = Path(
-    "/home/bwilab/Documents/fri-handover/dataset/input_video/1_w_b.mkv"
+    "/home/bwilab/Documents/fri-handover/record/1_video.mkv"
 )
 output_csv = Path("dataset/mediapipe_outputs/csv/depth_results.csv")
 output_3d_video = Path("dataset/mediapipe_outputs/video/3d_visualization_output.mp4")

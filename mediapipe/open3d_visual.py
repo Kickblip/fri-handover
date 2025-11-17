@@ -18,7 +18,7 @@ import mediapipe as mp
 
 DEFAULT_HANDS_CSV = Path("dataset/mediapipe_outputs/csv/depth_results.csv")
 # Example: change this to your real *_vertices.csv path
-DEFAULT_BOX_CSV = Path("/home/bwilab/Documents/fri-handover/dataset/vertices_csv/1_w_b_vertices.csv")
+DEFAULT_BOX_CSV = Path("/home/bwilab/Documents/fri-handover/record/1_video_box.csv")
 
 # MediaPipe hand graph
 mp_hands = mp.solutions.hands
@@ -48,7 +48,7 @@ def remap_coords_xyz(points: np.ndarray) -> np.ndarray:
     x = points[:, 0]
     y = points[:, 1]
     z = points[:, 2]
-    return np.stack([x, z, -y], axis=1)
+    return np.stack([x, y, z], axis=1)
 
 
 # ============================
@@ -145,7 +145,7 @@ def extract_box_points_for_frame(
         x = row[f"v{i}_x"]
         y = row[f"v{i}_y"]
         z = row[f"v{i}_z"]
-        verts[i] = [x, y, z]
+        verts[i] = [x+.1, y, z-.1]
 
     # Might be all NaNs if no valid data
     if np.isnan(verts).all():
