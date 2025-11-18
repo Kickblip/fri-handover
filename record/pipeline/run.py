@@ -2,6 +2,8 @@ import os
 import argparse
 from PipelineManager import PipelineManager
 import glob
+import sys
+import subprocess
 
 def resolve_input_files(path):
     if os.path.isfile(path):
@@ -37,8 +39,6 @@ def main():
     path = args.path
     preview = args.preview
 
-    pipeline = PipelineManager()
-
     if os.path.isdir(path):
         mkv_files = [
             os.path.join(path, f)
@@ -50,12 +50,23 @@ def main():
             raise SystemExit(f"No .mkv files found in directory: {path}")
 
         for mkv_path in mkv_files:
-            pipeline.run_on(mkv_path, preview)
+            cmd = [sys.executable, os.path.abspath(__file__)]
+            if preview:
+                cmd.append("--preview")
+            cmd.append(mkv_path)
+
+            try:
+                subprocess.run(cmd, check=True)
+            except subprocess.CalledProcessError as exc:
+                raise SystemExit(
+                    f"Processing failed for {mkv_path} with exit code {exc.returncode}"
+                ) from exc
 
     else:
         if not os.path.isfile(path):
             raise SystemExit(f"Path does not exist: {path}")
-
+        
+        pipeline = PipelineManager()
         pipeline.run_on(path, preview)
 
 if __name__ == "__main__":

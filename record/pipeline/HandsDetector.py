@@ -4,7 +4,7 @@ import mediapipe as mp
 import os
 import csv
 import numpy as np
-from pyk4a import PyK4APlayback, CalibrationType
+from pyk4a import CalibrationType
 from typing import List
 
 class HandsDetector:
@@ -12,7 +12,6 @@ class HandsDetector:
     def __init__(self, path, playback, debug=True):
         self.mp_hands = mp.solutions.hands
         self.mp_drawing = mp.solutions.drawing_utils
-
         self.hands = self.mp_hands.Hands(
             static_image_mode=False,
             max_num_hands=2,
@@ -23,7 +22,6 @@ class HandsDetector:
 
         self.fps = 30.0
         self.calib = playback.calibration
-        self.frames_xyz: List[List[np.ndarray]] = []
 
         self.csv_file = None
         self.csv_writer = None
@@ -119,29 +117,33 @@ class HandsDetector:
         else:
             hands_xyz = []
 
-        self.frames_xyz.append(hands_xyz)
+        self._write_frame_row(frame_idx, hands_xyz)
 
         return visualization_frame
+    
+    def _write_frame_row(self, frame_idx: int, hands_xyz: List[np.ndarray]) -> None:
+        if self.csv_writer is None:
+            return
+        
+        row = [frame_idx]
+
+        for h in range(2):
+            if h < len(hands_xyz):
+                pts = hands_xyz[h]
+            else:
+                pts = np.full((21, 3), np.nan, dtype=np.float32)
+
+            for i in range(21):
+                x, y, z = pts[i]
+                row.extend([float(x), float(y), float(z)])
+        
+        self.csv_writer.writerow(row)
 
     def clear(self):
 
-        rows = []
-        for fidx, hands_in_frame in enumerate(self.frames_xyz):
-            row = [fidx]
-
-            for h in range(2):
-                if h < len(hands_in_frame):
-                    pts = hands_in_frame[h]
-                else:
-                    pts = np.full((21, 3), np.nan, dtype=np.float32)
-
-                for i in range(21):
-                    x, y, z = pts[i]
-                    row.extend([float(x), float(y), float(z)])
-
-            rows.append(row)
-
-        self.csv_writer.writerows(rows)
         self._close_csv()
+        if self.hands is not None:
+            self.hands.close()
+            self.hands = None
 
       

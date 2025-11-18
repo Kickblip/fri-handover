@@ -14,9 +14,8 @@ class PipelineManager:
 
     def run_on(self, path: str, preview_mode: bool):
 
-        pb = PyK4APlayback(path)
-        pb.open()
-        self.playback = pb
+        self.playback = PyK4APlayback(path)
+        self.playback.open()
 
         self.AprilTag = AprilTagDetector(path, self.playback, debug=True)
         self.MediaPipe = HandsDetector(path, self.playback, debug=True)
