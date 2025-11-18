@@ -6,19 +6,26 @@ import csv
 import numpy as np
 from pyk4a import CalibrationType
 from typing import List
+from mediapipe.tasks import python as mp_tasks
+from mediapipe.tasks.python import vision
+from mediapipe.framework.formats import landmark_pb2
 
 class HandsDetector:
 
     def __init__(self, path, playback, debug=True):
         self.mp_hands = mp.solutions.hands
         self.mp_drawing = mp.solutions.drawing_utils
-        self.hands = self.mp_hands.Hands(
-            static_image_mode=False,
-            max_num_hands=2,
-            min_detection_confidence=0.5,
+
+        base_options = mp_tasks.BaseOptions(model_asset_path="./record/pipeline/hand_landmarker.task")
+        options = vision.HandLandmarkerOptions(
+            base_options=base_options,
+            num_hands=2,
+            min_hand_detection_confidence=0.5,
+            min_hand_presence_confidence=0.5,
             min_tracking_confidence=0.5,
-            model_complexity=1,
+            running_mode=vision.RunningMode.VIDEO,
         )
+        self.hands = vision.HandLandmarker.create_from_options(options)
 
         self.fps = 30.0
         self.calib = playback.calibration
@@ -83,23 +90,37 @@ class HandsDetector:
             
         color = self.convert_to_bgra_if_required(color_format, capture.color)
         frame_rgb = cv2.cvtColor(color, cv2.COLOR_BGR2RGB)
-        results = self.hands.process(frame_rgb)
+
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
+        timestamp_ms = int(frame_idx * 1000.0 / self.fps)
+        results = self.hands.detect_for_video(mp_image, timestamp_ms)
 
         hands_xyz: List[np.ndarray] = []
         h, w, _ = color.shape
 
-        if results.multi_hand_landmarks:
-            for lm_set in results.multi_hand_landmarks:
+        if results.hand_landmarks:
+            for lm_set in results.hand_landmarks:
+                lm_list = landmark_pb2.NormalizedLandmarkList()
+                lm_list.landmark.extend(
+                    [
+                        landmark_pb2.NormalizedLandmark(
+                            x=lm.x,
+                            y=lm.y,
+                            z=lm.z,
+                        )
+                        for lm in lm_set
+                    ]
+                )
                 self.mp_drawing.draw_landmarks(
                     visualization_frame,
-                    lm_set,
+                    lm_list,
                     self.mp_hands.HAND_CONNECTIONS,
                 )
             
-            for lm_set in results.multi_hand_landmarks:
+            for lm_set in results.hand_landmarks:
                 pts = []
 
-                for lm in lm_set.landmark:
+                for lm in lm_set:
                     u = int(lm.x * w)
                     v = int(lm.y * h)
 

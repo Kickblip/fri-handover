@@ -5,6 +5,14 @@ import glob
 import sys
 import subprocess
 
+# IF THESE ARENT HERE SCRIPT GETS MEMORY ERRORS
+os.environ["GLOG_minloglevel"] = "2"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+os.environ["MEDIAPIPE_DISABLE_GPU"] = "1"
+import absl.logging
+absl.logging.set_verbosity(absl.logging.ERROR)
+absl.logging.set_stderrthreshold("error")
+
 def resolve_input_files(path):
     if os.path.isfile(path):
         return [path]
