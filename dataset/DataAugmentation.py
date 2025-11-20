@@ -43,7 +43,9 @@ def augment_and_save(folder_path):
         # overwrite in place (preserves order)
         df.loc[:, coord_cols] = aug_flat
 
-        out_path = os.path.join(folder_path, f"aug_{filename}")
+        stem = filename.replace("_rodrigues.csv", "")
+        out_path = os.path.join(folder_path, f"{stem}_aug_rodrigues.csv")
+
         df.to_csv(out_path, index=False, float_format="%.17f")
 
         print(f"Saved augmented file: {out_path}")
