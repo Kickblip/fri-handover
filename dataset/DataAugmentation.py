@@ -32,7 +32,7 @@ def augment_and_save(folder_path):
         df = pd.read_csv(file_path, dtype={'hand_label_0': str, 'hand_label_1': str})
         df = df.reset_index(drop=True)  # Ensure sequential row indices
 
-        coord_cols = [col for col in df.columns if "_vec_" in col]
+        coord_cols = [col for col in df.columns if "_world_" in col]
         coords = df[coord_cols].to_numpy()
 
         num_frames = coords.shape[0]
