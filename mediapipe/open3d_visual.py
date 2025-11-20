@@ -16,9 +16,9 @@ import mediapipe as mp
 # ====== CONFIG / DEFAULTS ===
 # ============================
 
-DEFAULT_HANDS_CSV = Path("dataset/mediapipe_outputs/csv/depth_results.csv")
+DEFAULT_HANDS_CSV = Path("dataset/input_video/batch-testing/2_w_b_hands.csv")
 # Example: change this to your real *_vertices.csv path
-DEFAULT_BOX_CSV = Path("/home/bwilab/Documents/fri-handover/record/1_video_box.csv")
+DEFAULT_BOX_CSV = Path("/home/bwilab/Documents/fri-handover/dataset/input_video/batch-testing/2_w_b_box.csv")
 
 # MediaPipe hand graph
 mp_hands = mp.solutions.hands
@@ -57,7 +57,7 @@ def remap_coords_xyz(points: np.ndarray) -> np.ndarray:
 
 def load_hands_csv(path: Path) -> pd.DataFrame:
     df = pd.read_csv(path)
-    if "frame" not in df.columns:
+    if "frame_idx" not in df.columns:
         raise ValueError("Hands CSV must have a 'frame' column.")
     return df
 
@@ -70,7 +70,7 @@ def extract_hand_points_for_frame(
       points: (M,3) or None
       lines: list of [i,j] pairs (using indices into points) or None
     """
-    row = df[df["frame"] == frame_idx]
+    row = df[df["frame_idx"] == frame_idx]
     if row.empty:
         return None, None
 
@@ -145,7 +145,7 @@ def extract_box_points_for_frame(
         x = row[f"v{i}_x"]
         y = row[f"v{i}_y"]
         z = row[f"v{i}_z"]
-        verts[i] = [x+.1, y, z-.1]
+        verts[i] = [x, y, z-.2]
 
     # Might be all NaNs if no valid data
     if np.isnan(verts).all():
@@ -192,7 +192,7 @@ def main():
     hands_df = load_hands_csv(Path(args.hands_csv))
     box_df = load_box_csv(Path(args.box_csv))
 
-    max_hand_frame = int(hands_df["frame"].max())
+    max_hand_frame = int(hands_df["frame_idx"].max())
     max_box_frame = int(box_df["frame_idx"].max())
     total_frames = max(max_hand_frame, max_box_frame) + 1
 
