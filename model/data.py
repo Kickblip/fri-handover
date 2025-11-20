@@ -3,7 +3,6 @@ Data utilities:
 - Load per-frame input features: Rodrigues (two hands concatenated) + Vertices.
 - Load receiving hand (hand_1) world coordinates as targets.
 - Convert time-series into fixed-length windows with future frame targets.
-- Stem-wise splits to prevent leakage.
 """
 from __future__ import annotations
 from pathlib import Path

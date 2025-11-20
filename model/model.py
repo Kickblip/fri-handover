@@ -20,7 +20,7 @@ class PositionalEncoding(nn.Module):
         return x + self.pe[:, :x.size(1), :]
 
 class HandoverTransformer(nn.Module):
-    def __init__(self, in_dim: int, out_dim: int, d_model: int, nhead: int, nlayers: int, ffdim: int, dropout: float, future_frames: int = 5):
+    def __init__(self, in_dim: int, out_dim: int, d_model: int, nhead: int, nlayers: int, ffdim: int, dropout: float, future_frames: int = 10):
         super().__init__()
         self.future_frames = future_frames
         self.proj_in = nn.Linear(in_dim, d_model)

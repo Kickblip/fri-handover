@@ -3,7 +3,7 @@
 ## Current Status: ✅ Fully Functional
 
 ### What's Working
-- ✅ **Transformer Model**: Encoder-decoder architecture predicting 5 future frames
+- ✅ **Transformer Model**: Encoder-decoder architecture predicting 10 future frames
 - ✅ **Training Pipeline**: Full training with validation, early stopping, checkpoint saving
 - ✅ **Inference System**: Predictions + CSV output + video visualization
 - ✅ **Data Pipeline**: Robust CSV loading with error handling
@@ -16,8 +16,8 @@
 
 ### Architecture
 - **Model**: Transformer encoder-decoder (4 layers, 8 heads, d_model=256)
-- **Input**: 30-frame sequences of both hands' features
-- **Output**: 5 future frames of receiving hand world coordinates (21 landmarks × 3 coords)
+- **Input**: 20-frame sequences of both hands' features
+- **Output**: 10 future frames of receiving hand world coordinates (21 landmarks × 3 coords)
 
 ### Usage
 ```bash

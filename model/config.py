@@ -24,10 +24,10 @@ VIDEO_DIR.mkdir(parents=True, exist_ok=True)
 CKPT_PATH = CKPT_DIR / "handover_transformer.pt"   # trained model file
 
 # ---------------- Windowing & batching ---------------- 
-SEQ_LEN    = 30       # frames per window (~1s @ 30 FPS)
+SEQ_LEN    = 20       # frames per window (~0.67s @ 30 FPS)
 SEQ_STRIDE = 5        # overlap for more training windows
 BATCH_SIZE = 64
-FUTURE_FRAMES = 5     # number of frames to predict ahead
+FUTURE_FRAMES = 10    # number of frames to predict ahead
 
 # ---------------- Model size ---------------- 
 D_MODEL  = 256

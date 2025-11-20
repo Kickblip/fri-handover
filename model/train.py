@@ -30,7 +30,7 @@ def train(stems_to_use: Optional[List[str]] = None):
     """
     set_seed(1337)
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"🟢 Device: {device}")
+    print(f"Device: {device}")
 
     train_ld, val_ld, test_ld = build_loaders(stems_to_use)
 
@@ -58,7 +58,7 @@ def train(stems_to_use: Optional[List[str]] = None):
     
     criterion = nn.MSELoss()
     opt = AdamW(model.parameters(), lr=LR)
-    sched = ReduceLROnPlateau(opt, mode="min", factor=0.5, patience=2, verbose=True)
+    sched = ReduceLROnPlateau(opt, mode="min", factor=0.5, patience=2)
 
     best_val_loss, stale = float('inf'), 0
     for epoch in range(1, MAX_EPOCHS+1):
@@ -100,11 +100,11 @@ def train(stems_to_use: Optional[List[str]] = None):
                     "cfg": dict(D_MODEL=D_MODEL, N_HEAD=N_HEAD, N_LAYERS=N_LAYERS,
                                 FFN_DIM=FFN_DIM, DROPOUT=DROPOUT, FUTURE_FRAMES=FUTURE_FRAMES)
                 }, CKPT_PATH)
-                print(f"✅ New best ValLoss {best_val_loss:.6f} — saved {CKPT_PATH}")
+                print(f"New best ValLoss {best_val_loss:.6f} — saved {CKPT_PATH}")
             else:
                 stale += 1
                 if stale >= EARLY_STOP_PATIENCE:
-                    print("⏹ Early stopping (no validation loss improvement).")
+                    print("Early stopping (no validation loss improvement).")
                     break
         else:
             print(f"Epoch {epoch:02d} | TrainLoss {tr_loss:.6f} | (no VAL set)")
@@ -119,13 +119,13 @@ def train(stems_to_use: Optional[List[str]] = None):
                                 FFN_DIM=FFN_DIM, DROPOUT=DROPOUT, FUTURE_FRAMES=FUTURE_FRAMES)
                 }, CKPT_PATH)
                 if epoch == 1:
-                    print(f"✅ Saved initial checkpoint — {CKPT_PATH}")
+                    print(f"Saved initial checkpoint — {CKPT_PATH}")
                 else:
-                    print(f"✅ New best TrainLoss {best_val_loss:.6f} — saved {CKPT_PATH}")
+                    print(f"New best TrainLoss {best_val_loss:.6f} — saved {CKPT_PATH}")
 
     # Save final model if no checkpoint was saved (e.g., no validation set)
     if not CKPT_PATH.exists():
-        print(f"\n💾 Saving final model checkpoint (no validation set used)...")
+        print(f"\nSaving final model checkpoint (no validation set used)...")
         torch.save({
             "model": model.state_dict(),
             "in_dim": in_dim,
@@ -133,7 +133,7 @@ def train(stems_to_use: Optional[List[str]] = None):
             "cfg": dict(D_MODEL=D_MODEL, N_HEAD=N_HEAD, N_LAYERS=N_LAYERS,
                         FFN_DIM=FFN_DIM, DROPOUT=DROPOUT, FUTURE_FRAMES=FUTURE_FRAMES)
         }, CKPT_PATH)
-        print(f"✅ Saved final checkpoint — {CKPT_PATH}")
+        print(f"Saved final checkpoint — {CKPT_PATH}")
     
     # optional TEST summary
     if test_ld is not None:
