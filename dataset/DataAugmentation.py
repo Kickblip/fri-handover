@@ -1,7 +1,7 @@
 import numpy as np
 import os
 import pandas as pd
-
+import argparse
 
 # seq: shape (num_frames, num_hands, num_joints, 3)
 def augment_sequence(seq):
@@ -32,7 +32,7 @@ def augment_and_save(folder_path):
         df = pd.read_csv(file_path, dtype={'hand_label_0': str, 'hand_label_1': str})
         df = df.reset_index(drop=True)  # Ensure sequential row indices
 
-        coord_cols = [col for col in df.columns if "_world_" in col]
+        coord_cols = [col for col in df.columns if "_vec_" in col]
         coords = df[coord_cols].to_numpy()
 
         num_frames = coords.shape[0]
@@ -50,12 +50,19 @@ def augment_and_save(folder_path):
 
 
 def main():
-    iterations = 1
-    folder_path = "/Users/diego/Programming/fri-handover/dataset/mediapipe_outputs/csv/world" 
+    parser = argparse.ArgumentParser(description="Augment hand 3D coordinate CSVs. Make sure columns in csv are in _vec_ format.")
+    parser.add_argument(
+        "--csv_dir",
+        type=str,
+        required=True,
+        help="Directory containing input Mediapipe CSV files."
+    )
 
-    for i in range(iterations):
-        print(f"=== Augmentation round {i+1}/{iterations} ===")
-        augment_and_save(folder_path)
+    args = parser.parse_args()
+
+    print("=== Starting augmentation ===")
+    augment_and_save(args.csv_dir)
+    print("=== Augmentation complete ===")
 
 
 if __name__ == "__main__":
