@@ -4,9 +4,9 @@ All outputs live under dataset/model_output/ as requested.
 """
 from pathlib import Path
 
-# ---------------- Input roots (match your repo layout) ----------------
+# ---------------- Input roots (match your repo layout) ---------------- 
 ROOT = Path("dataset")
-RODR_DIR       = ROOT / "mediapipe_outputs" / "csv" / "rodrigues"            # {stem}_rodrigues.csv
+# RODR_DIR is no longer used - model now uses world coordinates only
 WORLD_DIR      = ROOT / "mediapipe_outputs" / "csv" / "world"                 # {stem}_world.csv
 VERTICES_DIR   = ROOT / "vertices_csv"                                       # {stem}_vertices.csv
 GLOBAL_MIN_DIR = ROOT / "mediapipe_outputs" / "csv" / "closest_pair_distance" # {stem}_closest_global.csv

@@ -23,9 +23,9 @@ python -m model.infer 1_w_b --video
 
 ## Description
 
-The model predicts 5 frames into the future for the receiving hand (hand_1) based on the input sequence of both hands' features. It uses a Transformer encoder-decoder architecture:
-- **Input**: Sequences of both hands' Rodrigues rotation vectors and optional vertices
-- **Output**: Predicted world coordinates of the receiving hand for the next 5 frames
+The model predicts 10 frames into the future for the receiving hand (hand_1) based on the input sequence of both hands' features. It uses a Transformer encoder-decoder architecture:
+- **Input**: Sequences of both hands' world coordinates (x, y, z Cartesian coordinates) and optional vertices
+- **Output**: Predicted world coordinates of the receiving hand for the next 10 frames
 
 ## Outputs
 

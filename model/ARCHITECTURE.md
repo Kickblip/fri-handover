@@ -22,16 +22,16 @@ model/
 ### 1. **Configuration (`config.py`)**
    - **Purpose**: Central hub for all paths and hyperparameters
    - **Exports**: 
-     - Paths: `RODR_DIR`, `WORLD_DIR`, `VERTICES_DIR`, `CKPT_DIR`, `PRED_DIR`, `VIDEO_DIR`
+     - Paths: `WORLD_DIR`, `VERTICES_DIR`, `CKPT_DIR`, `PRED_DIR`, `VIDEO_DIR`
      - Hyperparameters: `SEQ_LEN`, `BATCH_SIZE`, `FUTURE_FRAMES`, `D_MODEL`, etc.
    - **Used by**: All other files import from here
 
 ### 2. **Data Loading (`data.py`)**
    - **Purpose**: Load and preprocess data from CSV files
    - **Key Functions**:
-     - `load_rodrigues()`: Load hand rotation features (both hands concatenated)
+     - `load_both_hands_world()`: Load world coordinates (x, y, z) for both hands (concatenated)
      - `load_vertices()`: Load object vertex features (optional)
-     - `load_features()`: Combine Rodrigues + vertices → input features
+     - `load_features()`: Combine both hands' world coordinates + optional vertices → input features
      - `load_receiving_hand_world()`: Load receiving hand (hand_1) world coordinates → targets
      - `make_sequences_with_targets()`: Convert per-frame data into sliding windows
      - `HandoverDataset`: PyTorch Dataset class
@@ -116,7 +116,7 @@ infer.py
 ```
 CSV Files (dataset/)
   ↓
-data.py (load_rodrigues, load_vertices, load_receiving_hand_world)
+data.py (load_both_hands_world, load_vertices, load_receiving_hand_world)
   ↓
 HandoverDataset (sequences with targets)
   ↓
@@ -136,9 +136,10 @@ Predictions CSV + Video (model_output/)
 ### Input Features
 - **Shape**: `[T, D_in]` where T = number of frames
 - **Content**: 
-  - Hand 0 Rodrigues features (concatenated)
-  - Hand 1 Rodrigues features (concatenated)
+  - Hand 0 world coordinates (x, y, z for 21 landmarks = 63 features)
+  - Hand 1 world coordinates (x, y, z for 21 landmarks = 63 features)
   - Object vertices (optional, may be empty)
+  - Total: 126 features (both hands) + optional vertices
 
 ### Target Features
 - **Shape**: `[T, D_out]` where D_out = 63 (21 landmarks × 3 coords)

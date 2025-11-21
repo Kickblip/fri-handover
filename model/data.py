@@ -1,6 +1,6 @@
 """
 Data utilities:
-- Load per-frame input features: Rodrigues (two hands concatenated) + Vertices.
+- Load per-frame input features: World coordinates (x,y,z) for both hands concatenated.
 - Load receiving hand (hand_1) world coordinates as targets.
 - Convert time-series into fixed-length windows with future frame targets.
 """
@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset, DataLoader
-from .config import (RODR_DIR, WORLD_DIR, VERTICES_DIR,
+from .config import (WORLD_DIR, VERTICES_DIR,
                      SEQ_LEN, SEQ_STRIDE, BATCH_SIZE, FUTURE_FRAMES)
 
 # ---------- helpers ----------
@@ -30,154 +30,74 @@ def _pick_col(df: pd.DataFrame, main: str, aliases: List[str]) -> str:
 
 # ---------- discovery ----------
 def list_stems() -> List[str]:
-    """Find stems by scanning files named '<stem>_rodrigues.csv'."""
-    return sorted([p.stem.replace("_rodrigues", "") for p in RODR_DIR.glob("*_rodrigues.csv")])
+    """Find stems by scanning files named '<stem>_world.csv'."""
+    return sorted([p.stem.replace("_world", "") for p in WORLD_DIR.glob("*_world.csv")])
 
 # ---------- feature loaders ----------
-def load_rodrigues(stem: str) -> Tuple[np.ndarray, List[int]]:
+def load_both_hands_world(stem: str) -> Tuple[np.ndarray, List[int]]:
     """
-    Supports TWO schemas:
-
-    (A) WIDE (your file): one row per frame with columns like:
-        time_sec, frame_index, hand_label_0, hand_label_1, hand_score_0, ...
-        rot_vec_x_0, rot_vec_y_0, rot_vec_z_0, rot_vec_x_1, rot_vec_y_1, rot_vec_z_1, ...
-        -> We concatenate all features for hand 0 and hand 1 into [hand0 || hand1].
-
-    (B) LONG: rows like (frame, hand, <features...>) where hand ∈ {0,1}.
-        -> We gather the two hands per frame; zeros if one is missing.
-
+    Load world coordinates (x, y, z) for both hands (hand_0 and hand_1).
+    Returns concatenated features: [hand_0 world coords || hand_1 world coords].
+    
+    Expected CSV format: columns ending with:
+    - '_world_x_0', '_world_y_0', '_world_z_0' for hand 0
+    - '_world_x_1', '_world_y_1', '_world_z_1' for hand 1
+    
     Returns:
-      X_hands : [T, 2*D_hand]  (zeros padded if a hand is missing or a column is absent)
+      X_hands : [T, 126]  (63 features per hand: 21 landmarks × 3 coords)
       frames  : [T] list of frame indices (int)
     """
-    import re
-
-    df = _read_csv(RODR_DIR / f"{stem}_rodrigues.csv")
-
-    # --- detect frame column
+    p = WORLD_DIR / f"{stem}_world.csv"
+    if not p.exists():
+        raise FileNotFoundError(f"Missing world CSV: {p}")
+    
+    df = _read_csv(p)
     fcol = _pick_col(df, "frame", ["frame_index", "frame_idx"])
-
-    # --------- PATH (A): WIDE FORMAT ---------
-    # Heuristic: look for any columns ending with _0 or _1 (e.g., rot_vec_x_0)
-    has_wide_suffix = any(re.search(r"_([01])$", c) for c in df.columns)
-
-    if has_wide_suffix:
-        # Build a consistent feature list for each hand by base-name (strip trailing _0/_1)
-        def split_suffix(col: str):
-            m = re.search(r"(.*)_([01])$", col)
-            return (m.group(1), int(m.group(2))) if m else (None, None)
-
-        # Collect per-hand column sets
-        hand0_cols = []
-        hand1_cols = []
-        base_names = set()
-
-        for c in df.columns:
-            base, h = split_suffix(c)
-            if base is None:
-                continue
-            base_names.add(base)
-            if h == 0:
-                hand0_cols.append((base, c))
-            elif h == 1:
-                hand1_cols.append((base, c))
-
-        # Build maps first
-        h0_map = {b: c for (b, c) in hand0_cols}
-        h1_map = {b: c for (b, c) in hand1_cols}
-        
-        # Filter out non-numeric columns (like hand_label_*, hand_score_*)
-        # Only keep numeric feature columns (like rot_vec_*, etc.)
-        # Use pandas' built-in numeric detection
-        numeric_base_names = []
-        for b in base_names:
-            # Check if this base name has numeric values by trying to convert the column
-            is_numeric = False
-            # Check both hands for this base name
-            for h_map in [h0_map, h1_map]:
-                if b in h_map:
-                    col_name = h_map[b]
-                    # Try converting the entire column to numeric
-                    try:
-                        converted = pd.to_numeric(df[col_name], errors='coerce')
-                        # Check if we got any valid numeric values (not all NaN)
-                        if not converted.isna().all():
-                            # Check if the non-null values are actually numeric
-                            non_null = converted.dropna()
-                            if len(non_null) > 0:
-                                is_numeric = True
-                                break
-                    except (ValueError, TypeError):
-                        # Not numeric, skip this base name
-                        pass
-            if is_numeric:
-                numeric_base_names.append(b)
-        
-        print(f"    Found {len(base_names)} base names, filtered to {len(numeric_base_names)} numeric: {numeric_base_names[:5]}...")
-        
-        if len(numeric_base_names) == 0:
-            raise ValueError(f"No numeric columns found for {stem}. All columns may be non-numeric (strings).")
-        
-        # Sort by base name for deterministic ordering
-        numeric_base_names = sorted(numeric_base_names)
-        # Filter maps to only numeric columns
-        h0_map = {b: c for (b, c) in hand0_cols if b in numeric_base_names}
-        h1_map = {b: c for (b, c) in hand1_cols if b in numeric_base_names}
-
-        frames = df[fcol].astype(int).tolist()
-        X_rows = []
-
-        for _, row in df.iterrows():
-            # hand 0 vector
-            h0_vec = []
-            for b in numeric_base_names:
-                if b in h0_map:
-                    val = row[h0_map[b]]
-                    # Convert to float, handling strings and NaN
-                    try:
-                        h0_vec.append(float(val) if pd.notna(val) else 0.0)
-                    except (ValueError, TypeError):
-                        h0_vec.append(0.0)
-                else:
-                    h0_vec.append(0.0)
-            # hand 1 vector
-            h1_vec = []
-            for b in numeric_base_names:
-                if b in h1_map:
-                    val = row[h1_map[b]]
-                    # Convert to float, handling strings and NaN
-                    try:
-                        h1_vec.append(float(val) if pd.notna(val) else 0.0)
-                    except (ValueError, TypeError):
-                        h1_vec.append(0.0)
-                else:
-                    h1_vec.append(0.0)
-
-            X_rows.append(np.array(h0_vec + h1_vec, dtype=np.float32))
-
-        if len(X_rows) == 0:
-            raise ValueError(f"No valid rows created for {stem}")
-        
-        X = np.stack(X_rows, axis=0)
-        print(f"    Created feature array shape: {X.shape} from {len(frames)} frames")
-        return X, frames
-
-    # --------- PATH (B): LONG FORMAT ---------
-    # Expect 'hand' column and one row per (frame, hand).
-    hcol = _pick_col(df, "hand", ["which", "side"])
-    feat_cols = [c for c in df.columns if c not in (fcol, hcol)]
-
-    frames = sorted(map(int, df[fcol].unique()))
-    X = []
-    for f in frames:
-        sub = df[df[fcol] == f]
-        h0 = sub[sub[hcol] == 0][feat_cols].to_numpy(np.float32)
-        h1 = sub[sub[hcol] == 1][feat_cols].to_numpy(np.float32)
-        h0v = h0[0] if len(h0) else np.zeros(len(feat_cols), np.float32)
-        h1v = h1[0] if len(h1) else np.zeros(len(feat_cols), np.float32)
-        X.append(np.concatenate([h0v, h1v], axis=0))
-
-    return np.stack(X, 0), frames
+    frames = df[fcol].astype(int).tolist()
+    
+    # Extract hand_0 world coordinate columns (ending with _0)
+    hand0_cols = [c for c in df.columns if c.endswith("_world_x_0") or 
+                  c.endswith("_world_y_0") or c.endswith("_world_z_0")]
+    
+    if not hand0_cols:
+        # Fallback: try to find any columns with _0 suffix and x/y/z pattern
+        hand0_cols = [c for c in df.columns if re.search(r"_world_[xyz]_0$", c)]
+    
+    # Extract hand_1 world coordinate columns (ending with _1)
+    hand1_cols = [c for c in df.columns if c.endswith("_world_x_1") or 
+                  c.endswith("_world_y_1") or c.endswith("_world_z_1")]
+    
+    if not hand1_cols:
+        # Fallback: try to find any columns with _1 suffix and x/y/z pattern
+        hand1_cols = [c for c in df.columns if re.search(r"_world_[xyz]_1$", c)]
+    
+    if not hand0_cols:
+        all_cols = list(df.columns)
+        print(f"Available columns in {p.name}: {all_cols[:10]}... (showing first 10)")
+        raise ValueError(f"No hand_0 world coordinates found in {p}. Expected columns ending with '_world_x_0', '_world_y_0', or '_world_z_0'")
+    
+    if not hand1_cols:
+        all_cols = list(df.columns)
+        print(f"Available columns in {p.name}: {all_cols[:10]}... (showing first 10)")
+        raise ValueError(f"No hand_1 world coordinates found in {p}. Expected columns ending with '_world_x_1', '_world_y_1', or '_world_z_1'")
+    
+    # Sort columns to ensure consistent ordering (x, y, z for each landmark)
+    hand0_cols = sorted(hand0_cols)
+    hand1_cols = sorted(hand1_cols)
+    
+    # Extract features - convert to numeric, coercing errors to NaN
+    X0 = df[hand0_cols].apply(pd.to_numeric, errors='coerce').to_numpy(np.float32)
+    X1 = df[hand1_cols].apply(pd.to_numeric, errors='coerce').to_numpy(np.float32)
+    
+    # Replace NaN with 0
+    X0 = np.nan_to_num(X0, nan=0.0)
+    X1 = np.nan_to_num(X1, nan=0.0)
+    
+    # Concatenate both hands: [hand_0 || hand_1]
+    X = np.concatenate([X0, X1], axis=1)  # [T, 126]
+    
+    print(f"    Loaded world coordinates: hand_0 shape {X0.shape}, hand_1 shape {X1.shape}, combined {X.shape}")
+    return X, frames
 
 def load_vertices(stem: str, frames: List[int]) -> np.ndarray:
     p = VERTICES_DIR / f"{stem}_vertices.csv"
@@ -228,8 +148,8 @@ def load_vertices(stem: str, frames: List[int]) -> np.ndarray:
     return X
 
 def load_features(stem: str) -> Tuple[np.ndarray, List[int]]:
-    """Concatenate Rodrigues and vertices features per frame (input features)."""
-    X_h, frames = load_rodrigues(stem)
+    """Load world coordinates for both hands per frame (input features)."""
+    X_h, frames = load_both_hands_world(stem)
     X_v = load_vertices(stem, frames)
     X   = np.concatenate([X_h, X_v], axis=1)  # X_v may be width 0 if vertices absent
     return X, frames
@@ -282,7 +202,7 @@ def make_sequences_with_targets(X_input: np.ndarray, X_target: np.ndarray,
     Convert per-frame features into overlapping windows with future frame targets.
     
     Args:
-        X_input: [T, D_in] input features (both hands + vertices)
+        X_input: [T, D_in] input features (both hands world coordinates + optional vertices)
         X_target: [T, D_out] target features (receiving hand world coords)
         frames: [T] frame indices
         seq_len: length of input sequence
@@ -346,7 +266,7 @@ class HandoverDataset(Dataset):
         self.samples = []
         for s in stems:
             try:
-                # Load input features (both hands + vertices)
+                # Load input features (both hands world coordinates + optional vertices)
                 print(f"  Loading {s}...")
                 X_input, frames_input = load_features(s)
                 print(f"    Input features shape: {X_input.shape}, frames: {len(frames_input)}")

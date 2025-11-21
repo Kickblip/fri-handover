@@ -26,7 +26,7 @@ The Handover Transformer predicts future frames of the receiving hand during han
 ### 2. **Data Pipeline** (`data.py`)
 - ✅ Support for wide-format CSV files (hand_0 and hand_1 features)
 - ✅ Automatic detection of numeric vs non-numeric columns
-- ✅ Loading of Rodrigues rotation vectors (both hands)
+- ✅ Loading of world coordinates (x, y, z Cartesian coordinates) for both hands
 - ✅ Optional vertex features support
 - ✅ Sliding window sequence generation
 - ✅ Train/validation/test splits (stem-wise to prevent leakage)
@@ -87,7 +87,7 @@ Linear Projection → [B, future_frames, D_out]
 - **Batch Size**: 64
 
 ### Input/Output
-- **Input**: Concatenated features from both hands (Rodrigues rotation vectors) + optional vertices
+- **Input**: Concatenated world coordinates (x, y, z) from both hands (126 features: 63 per hand) + optional vertices
 - **Output**: World coordinates of receiving hand (hand_1) for 21 landmarks × 3 coords = 63 features per frame
 
 ---
@@ -161,7 +161,7 @@ python -m model.infer 1_w_b --video
 ## 🔄 Data Flow
 
 ```
-CSV Files (Rodrigues, World Coordinates)
+CSV Files (World Coordinates)
   ↓
 data.py (load and preprocess)
   ↓
