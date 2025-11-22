@@ -461,8 +461,17 @@ def build_loaders(stems_to_use: Optional[List[str]] = None):
                 error_parts.append(f"Directory exists but contains no CSV files.")
         else:
             error_parts.append(f"Directory does not exist: {HANDS_DIR.resolve()}")
+            # Check if parent directory exists
+            if HANDS_DIR.parent.exists():
+                parent_files = list(HANDS_DIR.parent.glob("*"))
+                error_parts.append(f"Parent directory exists. Contents: {[f.name for f in parent_files if f.is_dir() or f.suffix == '.csv']}")
+            else:
+                error_parts.append(f"Parent directory also does not exist: {HANDS_DIR.parent.resolve()}")
         
         error_parts.append(f"Found {len(available_stems)} stems: {available_stems}")
+        error_parts.append(f"\nTo fix: Ensure data files are in {HANDS_DIR.resolve()}")
+        error_parts.append(f"  Hands files: {HANDS_DIR.resolve()}/*_video_hands.csv")
+        error_parts.append(f"  Box files:   {BOX_DIR.resolve()}/*_video_box.csv")
         
         raise RuntimeError("\n".join(error_parts))
     

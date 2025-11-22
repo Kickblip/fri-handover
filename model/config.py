@@ -5,8 +5,8 @@ All outputs live under dataset/model_output/ as requested.
 from pathlib import Path
 
 # ---------------- Input roots (match your repo layout) ---------------- 
-# Data is located in: model_dataset/handover-csv/hands/ and model_dataset/handover-csv/box/
-MODEL_DATASET_ROOT = Path("model_dataset") / "handover-csv"
+# Data is located in: model_dataset/handover-csv/handover-csv/hands/ and model_dataset/handover-csv/handover-csv/box/
+MODEL_DATASET_ROOT = Path("model_dataset") / "handover-csv" / "handover-csv"
 HANDS_DIR = MODEL_DATASET_ROOT / "hands"      # {number}_video_hands.csv files go here
 BOX_DIR   = MODEL_DATASET_ROOT / "box"        # {number}_video_box.csv files go here
 # Note: Directories are NOT created automatically - data must already exist in these locations
