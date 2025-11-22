@@ -64,10 +64,81 @@ def list_stems() -> List[str]:
     return sorted(stems)
 
 # ---------- feature loaders ----------
+def _ensure_hand_consistency(X0: np.ndarray, X1: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Ensure hand0 and hand1 remain consistent throughout the video.
+    Uses hand wrist position (landmark 0) to track which physical hand is which.
+    If hands switch labels mid-video, swap them back to maintain consistency.
+    
+    Args:
+        X0: [T, 63] hand0 coordinates (21 landmarks × 3 coords)
+        X1: [T, 63] hand1 coordinates (21 landmarks × 3 coords)
+    
+    Returns:
+        X0_corrected: [T, 63] consistently labeled hand0
+        X1_corrected: [T, 63] consistently labeled hand1
+    """
+    T = X0.shape[0]
+    if T < 2:
+        return X0, X1
+    
+    # Reshape to [T, 21, 3] to access individual landmarks
+    h0_reshaped = X0.reshape(T, 21, 3)
+    h1_reshaped = X1.reshape(T, 21, 3)
+    
+    # Use wrist position (landmark 0) for tracking - more stable than centroid
+    h0_wrists = h0_reshaped[:, 0, :]  # [T, 3] - wrist positions for hand0
+    h1_wrists = h1_reshaped[:, 0, :]  # [T, 3] - wrist positions for hand1
+    
+    X0_corrected = X0.copy()
+    X1_corrected = X1.copy()
+    
+    # Track hands frame by frame
+    for t in range(1, T):
+        # Get previous and current wrist positions
+        prev_h0_wrist = h0_wrists[t-1]
+        prev_h1_wrist = h1_wrists[t-1]
+        curr_h0_wrist = h0_wrists[t]
+        curr_h1_wrist = h1_wrists[t]
+        
+        # Skip if either hand is missing (all zeros or very close to zero)
+        h0_missing = np.allclose(curr_h0_wrist, 0, atol=0.01)
+        h1_missing = np.allclose(curr_h1_wrist, 0, atol=0.01)
+        if h0_missing or h1_missing:
+            continue
+        
+        # Compute distances: how far did each labeled hand move from its previous position?
+        dist_h0_to_prev_h0 = np.linalg.norm(curr_h0_wrist - prev_h0_wrist)
+        dist_h0_to_prev_h1 = np.linalg.norm(curr_h0_wrist - prev_h1_wrist)
+        dist_h1_to_prev_h0 = np.linalg.norm(curr_h1_wrist - prev_h0_wrist)
+        dist_h1_to_prev_h1 = np.linalg.norm(curr_h1_wrist - prev_h1_wrist)
+        
+        # Check if hands have switched:
+        # If current h0 is closer to where h1 was, AND current h1 is closer to where h0 was
+        # And the "wrong" assignment is significantly closer (at least 2x closer)
+        switched = False
+        if (dist_h0_to_prev_h1 < dist_h0_to_prev_h0 * 0.5 and 
+            dist_h1_to_prev_h0 < dist_h1_to_prev_h1 * 0.5):
+            # Additional check: the distances should be reasonable (not too large)
+            max_reasonable_movement = 0.3  # 30cm per frame is reasonable
+            if dist_h0_to_prev_h1 < max_reasonable_movement and dist_h1_to_prev_h0 < max_reasonable_movement:
+                switched = True
+        
+        if switched:
+            # Hands have switched labels - swap them back to maintain consistency
+            X0_corrected[t] = X1[t].copy()
+            X1_corrected[t] = X0[t].copy()
+            # Update wrist positions for next iteration
+            h0_wrists[t] = X0_corrected[t].reshape(21, 3)[0]
+            h1_wrists[t] = X1_corrected[t].reshape(21, 3)[0]
+    
+    return X0_corrected, X1_corrected
+
 def load_both_hands_world(stem: str) -> Tuple[np.ndarray, List[int]]:
     """
     Load world coordinates (x, y, z) for both hands (hand_0 and hand_1).
     Returns concatenated features: [hand_0 world coords || hand_1 world coords].
+    Ensures hand0 and hand1 remain consistent throughout the video.
     
     Expected CSV format:
     - frame_idx, h0_lm0_x, h0_lm0_y, h0_lm0_z, h0_lm1_x, ... (hand 0)
@@ -113,6 +184,9 @@ def load_both_hands_world(stem: str) -> Tuple[np.ndarray, List[int]]:
     # Replace NaN with 0
     X0 = np.nan_to_num(X0, nan=0.0)
     X1 = np.nan_to_num(X1, nan=0.0)
+    
+    # Ensure hand consistency throughout video (fix hand switching)
+    X0, X1 = _ensure_hand_consistency(X0, X1)
     
     # Concatenate both hands: [hand_0 || hand_1]
     X = np.concatenate([X0, X1], axis=1)  # [T, 126]
@@ -231,38 +305,18 @@ def load_receiving_hand_world(stem: str) -> Tuple[np.ndarray, List[int]]:
     """
     Load receiving hand (hand_1) world coordinates as targets.
     Returns world coordinates for all 21 landmarks (63 features: x,y,z for each).
+    Uses the same consistency fix as load_both_hands_world to ensure hand1 stays consistent.
     
     Expected CSV format: frame_idx, h1_lm0_x, h1_lm0_y, h1_lm0_z, h1_lm1_x, ...
     """
-    # Try new format first
-    p = HANDS_DIR / f"{stem}_hands.csv" if HANDS_DIR.exists() else None
-    if p is None or not p.exists():
-        # Fallback to old format
-        p = WORLD_DIR / f"{stem}_world.csv"
+    # Load both hands with consistency fix, then extract only hand1
+    # This ensures hand1 is consistently labeled throughout the video
+    X_both, frames = load_both_hands_world(stem)
     
-    if not p.exists():
-        raise FileNotFoundError(f"Missing hands CSV: {p}")
+    # Extract hand1 (second half: indices 63-125)
+    X1 = X_both[:, 63:126]  # [T, 63]
     
-    df = _read_csv(p)
-    fcol = _pick_col(df, "frame_idx", ["frame_index", "frame"])
-    frames = df[fcol].astype(int).tolist()
-    
-    # Extract all hand_1 columns (starting with h1_)
-    hand1_cols = [c for c in df.columns if c.startswith("h1_")]
-    
-    if not hand1_cols:
-        raise ValueError(f"No hand_1 columns found in {p}. Expected columns starting with 'h1_' (e.g., h1_lm0_x, h1_lm0_y, h1_lm0_z)")
-    
-    # Sort columns to ensure consistent ordering (x, y, z for each landmark)
-    hand1_cols = sorted(hand1_cols)
-    
-    # Extract features - convert to numeric, coercing errors to NaN
-    X = df[hand1_cols].apply(pd.to_numeric, errors='coerce').to_numpy(np.float32)
-    
-    # Replace NaN with 0
-    X = np.nan_to_num(X, nan=0.0)
-    
-    return X, frames
+    return X1, frames
 
 # ---------- sequences / datasets ----------
 def make_sequences_with_targets(X_input: np.ndarray, X_target: np.ndarray, 
