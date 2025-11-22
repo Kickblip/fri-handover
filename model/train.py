@@ -44,7 +44,17 @@ def train(stems_to_use: Optional[List[str]] = None):
     if not stems:
         raise RuntimeError("No stems available for training.")
     
-    print(f"Using stems: {stems}")
+    # Show data splits
+    from .data import split_stems
+    tr_stems, val_stems, test_stems = split_stems(stems_to_use)
+    print(f"\nData splits:")
+    print(f"  Train: {tr_stems} ({len(tr_stems)} stems)")
+    print(f"  Validation: {val_stems} ({len(val_stems)} stems)")
+    print(f"  Test: {test_stems} ({len(test_stems)} stems)")
+    print(f"\nFor inference, use test/validation stems that weren't trained on:")
+    print(f"  Test stems: {test_stems}")
+    print(f"  Validation stems: {val_stems}")
+    print()
     
     # Get input and output dimensions
     in_dim = load_features(stems[0])[0].shape[1]
