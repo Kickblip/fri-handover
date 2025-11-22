@@ -35,15 +35,35 @@ def list_stems() -> List[str]:
     Returns stems like '1_video', '2_video', etc.
     """
     stems = []
+    
+    # Check new format first
     if HANDS_DIR.exists():
-        for p in HANDS_DIR.glob("*_video_hands.csv"):
+        print(f"Scanning for hands files in: {HANDS_DIR}")
+        found_files = list(HANDS_DIR.glob("*_video_hands.csv"))
+        print(f"  Found {len(found_files)} hands files: {[f.name for f in found_files]}")
+        for p in found_files:
             # Extract stem: "1_video_hands.csv" -> "1_video"
             stem = p.stem.replace("_hands", "")
             stems.append(stem)
+    else:
+        print(f"  WARNING: HANDS_DIR does not exist: {HANDS_DIR}")
+    
     # Fallback to old format if new format not found
     if not stems and WORLD_DIR.exists():
-        for p in WORLD_DIR.glob("*_world.csv"):
+        print(f"  Falling back to old format, scanning: {WORLD_DIR}")
+        found_files = list(WORLD_DIR.glob("*_world.csv"))
+        print(f"  Found {len(found_files)} world files: {[f.name for f in found_files]}")
+        for p in found_files:
             stems.append(p.stem.replace("_world", ""))
+    
+    if not stems:
+        print(f"  ERROR: No data files found!")
+        print(f"    Checked HANDS_DIR: {HANDS_DIR} (exists: {HANDS_DIR.exists()})")
+        print(f"    Checked WORLD_DIR: {WORLD_DIR} (exists: {WORLD_DIR.exists()})")
+        print(f"    Expected format: {{number}}_video_hands.csv in {HANDS_DIR}")
+        print(f"    Or old format: {{stem}}_world.csv in {WORLD_DIR}")
+    
+    print(f"  Discovered {len(stems)} stems: {stems}")
     return sorted(stems)
 
 # ---------- feature loaders ----------
@@ -435,9 +455,16 @@ def build_loaders(stems_to_use: Optional[List[str]] = None):
     Build data loaders.
     If stems_to_use is provided, only uses those stems for training.
     """
+    print(f"\n{'='*60}")
     print(f"Building loaders with stems_to_use={stems_to_use}")
+    print(f"{'='*60}")
+    
+    # First, discover all available stems
+    all_available_stems = list_stems()
+    print(f"\nAll available stems: {all_available_stems}")
+    
     tr, va, te = split_stems(stems_to_use)
-    print(f"Split result: train={len(tr)} stems, val={len(va)} stems, test={len(te)} stems")
+    print(f"\nSplit result: train={len(tr)} stems {tr}, val={len(va)} stems {va}, test={len(te)} stems {te}")
     
     def mk(ss, shuf):
         """Create DataLoader, handling empty datasets."""
@@ -472,6 +499,19 @@ def build_loaders(stems_to_use: Optional[List[str]] = None):
     test_ld = mk(te, False)
     
     if train_ld is None:
-        raise RuntimeError("Train dataset is empty. Check that data files exist and have enough frames.")
+        available_stems = list_stems()
+        error_msg = "\n" + "="*60 + "\n"
+        error_msg += "ERROR: Train dataset is empty!\n"
+        error_msg += "="*60 + "\n"
+        error_msg += f"Possible causes:\n"
+        error_msg += f"1. No data files found in expected locations:\n"
+        error_msg += f"   - New format: {HANDS_DIR}/*_video_hands.csv\n"
+        error_msg += f"   - Old format: {WORLD_DIR}/*_world.csv\n"
+        error_msg += f"2. Requested stems not found: {stems_to_use}\n"
+        error_msg += f"   Available stems: {available_stems}\n"
+        error_msg += f"3. Files exist but have insufficient frames (need at least {SEQ_LEN + FUTURE_FRAMES} frames)\n"
+        error_msg += f"4. Files exist but failed to load (check error messages above)\n"
+        error_msg += "="*60 + "\n"
+        raise RuntimeError(error_msg)
     
     return train_ld, val_ld, test_ld
