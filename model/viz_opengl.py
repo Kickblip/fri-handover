@@ -10,6 +10,7 @@ Visualization:
     - Predicted hand landmarks → RED points with connections
     - Error lines (if enabled) → YELLOW lines connecting actual to predicted
     - Timestamp displayed in seconds
+    - Legend displayed with actual and predicted hands
 """
 from __future__ import annotations
 
