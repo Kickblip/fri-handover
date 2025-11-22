@@ -13,6 +13,7 @@ __pycache__/
 .Python
 trials/
 *.mkv
+*.csv
 
 # Model outputs (checkpoints, predictions, videos)
 dataset/model_output/
