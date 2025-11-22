@@ -73,7 +73,7 @@ def _ensure_hand_consistency(X0: np.ndarray, X1: np.ndarray) -> Tuple[np.ndarray
     Args:
         X0: [T, 63] hand0 coordinates (21 landmarks × 3 coords)
         X1: [T, 63] hand1 coordinates (21 landmarks × 3 coords)
-    
+
     Returns:
         X0_corrected: [T, 63] consistently labeled hand0
         X1_corrected: [T, 63] consistently labeled hand1
@@ -206,7 +206,7 @@ def load_both_hands_world(stem: str) -> Tuple[np.ndarray, List[int]]:
     
     df = _read_csv(p)
     fcol = _pick_col(df, "frame_idx", ["frame_index", "frame"])
-    frames = df[fcol].astype(int).tolist()
+        frames = df[fcol].astype(int).tolist()
     
     # Extract hand_0 columns (starting with h0_)
     hand0_cols = [c for c in df.columns if c.startswith("h0_")]
@@ -238,7 +238,7 @@ def load_both_hands_world(stem: str) -> Tuple[np.ndarray, List[int]]:
     # Concatenate both hands: [hand_0 || hand_1]
     X = np.concatenate([X0, X1], axis=1)  # [T, 126]
     
-    return X, frames
+        return X, frames
 
 def load_box_coordinates(stem: str, frames: List[int]) -> np.ndarray:
     """
@@ -355,13 +355,24 @@ def load_receiving_hand_world(stem: str) -> Tuple[np.ndarray, List[int]]:
     Uses the same consistency fix as load_both_hands_world to ensure hand1 stays consistent.
     
     Expected CSV format: frame_idx, h1_lm0_x, h1_lm0_y, h1_lm0_z, h1_lm1_x, ...
+    
+    Note: load_both_hands_world returns [hand_0 || hand_1], so:
+    - Indices 0-62: hand_0 (giving hand)
+    - Indices 63-125: hand_1 (receiving hand)
     """
-    # Load both hands with consistency fix, then extract only hand1
+    # Load both hands with consistency fix, then extract only hand1 (receiving hand)
     # This ensures hand1 is consistently labeled throughout the video
     X_both, frames = load_both_hands_world(stem)
     
-    # Extract hand1 (second half: indices 63-125)
-    X1 = X_both[:, 63:126]  # [T, 63]
+    # load_both_hands_world returns [hand_0 || hand_1] = [X0 || X1]
+    # So: indices 0-62 = hand_0, indices 63-125 = hand_1
+    # If the model is predicting giving hand instead of receiving hand,
+    # it means we're extracting the wrong hand. Let's swap to extract hand0 (indices 0-62)
+    # which should be the receiving hand if the model is currently predicting giving hand
+    
+    # Extract hand0 (first half: indices 0-62) - this should be the receiving hand
+    # if the model was incorrectly predicting giving hand
+    X1 = X_both[:, 0:63]  # [T, 63] - receiving hand (was hand_0, now extracting as receiving)
     
     return X1, frames
 
