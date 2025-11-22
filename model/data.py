@@ -206,7 +206,7 @@ def load_both_hands_world(stem: str) -> Tuple[np.ndarray, List[int]]:
     
     df = _read_csv(p)
     fcol = _pick_col(df, "frame_idx", ["frame_index", "frame"])
-        frames = df[fcol].astype(int).tolist()
+    frames = df[fcol].astype(int).tolist()
     
     # Extract hand_0 columns (starting with h0_)
     hand0_cols = [c for c in df.columns if c.startswith("h0_")]
@@ -238,7 +238,7 @@ def load_both_hands_world(stem: str) -> Tuple[np.ndarray, List[int]]:
     # Concatenate both hands: [hand_0 || hand_1]
     X = np.concatenate([X0, X1], axis=1)  # [T, 126]
     
-        return X, frames
+    return X, frames
 
 def load_box_coordinates(stem: str, frames: List[int]) -> np.ndarray:
     """
