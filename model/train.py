@@ -151,6 +151,13 @@ def train(stems_to_use: Optional[List[str]] = None):
             print(f"TEST Loss: {test_loss:.6f}")
 
 if __name__ == "__main__":
-    # Train only on these two specific files
-    stems_to_use = ["1_w_b", "2_w_b"]
-    train(stems_to_use=stems_to_use)
+    # Auto-discover stems from available data files
+    # The new format expects files like: {number}_video_hands.csv (e.g., 1_video_hands.csv)
+    # Which gives stems like: "1_video", "2_video", etc.
+    
+    # Option 1: Use all available stems (auto-discovery)
+    train(stems_to_use=None)
+    
+    # Option 2: Train on specific stems (uncomment and modify as needed)
+    # stems_to_use = ["1_video", "2_video", "3_video"]
+    # train(stems_to_use=stems_to_use)
