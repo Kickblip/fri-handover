@@ -5,11 +5,14 @@ All outputs live under dataset/model_output/ as requested.
 from pathlib import Path
 
 # ---------------- Input roots (match your repo layout) ---------------- 
+MODEL_DATASET_ROOT = Path("model_dataset") / "handover-csv"
+HANDS_DIR = MODEL_DATASET_ROOT / "hands"      # {number}_video_hands.csv
+BOX_DIR   = MODEL_DATASET_ROOT / "box"        # {number}_video_box.csv
+# Legacy paths (kept for backward compatibility if needed)
 ROOT = Path("dataset")
-# RODR_DIR is no longer used - model now uses world coordinates only
-WORLD_DIR      = ROOT / "mediapipe_outputs" / "csv" / "world"                 # {stem}_world.csv
-VERTICES_DIR   = ROOT / "vertices_csv"                                       # {stem}_vertices.csv
-GLOBAL_MIN_DIR = ROOT / "mediapipe_outputs" / "csv" / "closest_pair_distance" # {stem}_closest_global.csv
+WORLD_DIR = ROOT / "mediapipe_outputs" / "csv" / "world"  # Legacy: {stem}_world.csv
+VERTICES_DIR = ROOT / "vertices_csv"  # Legacy: {stem}_vertices.csv
+GLOBAL_MIN_DIR = ROOT / "mediapipe_outputs" / "csv" / "closest_pair_distance"
 
 # ---------------- Output roots (under dataset/) ---------------- 
 MODEL_OUT_DIR = ROOT / "model_output"

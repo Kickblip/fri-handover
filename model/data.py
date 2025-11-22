@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset, DataLoader
-from .config import (WORLD_DIR, VERTICES_DIR,
+from .config import (HANDS_DIR, BOX_DIR, WORLD_DIR, VERTICES_DIR,
                      SEQ_LEN, SEQ_STRIDE, BATCH_SIZE, FUTURE_FRAMES)
 
 # ---------- helpers ----------
@@ -30,8 +30,21 @@ def _pick_col(df: pd.DataFrame, main: str, aliases: List[str]) -> str:
 
 # ---------- discovery ----------
 def list_stems() -> List[str]:
-    """Find stems by scanning files named '<stem>_world.csv'."""
-    return sorted([p.stem.replace("_world", "") for p in WORLD_DIR.glob("*_world.csv")])
+    """
+    Find stems by scanning files named '{number}_video_hands.csv' in the hands folder.
+    Returns stems like '1_video', '2_video', etc.
+    """
+    stems = []
+    if HANDS_DIR.exists():
+        for p in HANDS_DIR.glob("*_video_hands.csv"):
+            # Extract stem: "1_video_hands.csv" -> "1_video"
+            stem = p.stem.replace("_hands", "")
+            stems.append(stem)
+    # Fallback to old format if new format not found
+    if not stems and WORLD_DIR.exists():
+        for p in WORLD_DIR.glob("*_world.csv"):
+            stems.append(p.stem.replace("_world", ""))
+    return sorted(stems)
 
 # ---------- feature loaders ----------
 def load_both_hands_world(stem: str) -> Tuple[np.ndarray, List[int]]:
@@ -39,17 +52,25 @@ def load_both_hands_world(stem: str) -> Tuple[np.ndarray, List[int]]:
     Load world coordinates (x, y, z) for both hands (hand_0 and hand_1).
     Returns concatenated features: [hand_0 world coords || hand_1 world coords].
     
+    Tries new format first: {stem}_hands.csv from HANDS_DIR
+    Falls back to old format: {stem}_world.csv from WORLD_DIR
+    
     Expected CSV format: columns ending with:
     - '_world_x_0', '_world_y_0', '_world_z_0' for hand 0
     - '_world_x_1', '_world_y_1', '_world_z_1' for hand 1
-    
+
     Returns:
       X_hands : [T, 126]  (63 features per hand: 21 landmarks × 3 coords)
       frames  : [T] list of frame indices (int)
     """
-    p = WORLD_DIR / f"{stem}_world.csv"
+    # Try new format first
+    p = HANDS_DIR / f"{stem}_hands.csv" if HANDS_DIR.exists() else None
+    if p is None or not p.exists():
+        # Fallback to old format
+        p = WORLD_DIR / f"{stem}_world.csv"
+    
     if not p.exists():
-        raise FileNotFoundError(f"Missing world CSV: {p}")
+        raise FileNotFoundError(f"Missing hands CSV: {p}")
     
     df = _read_csv(p)
     fcol = _pick_col(df, "frame", ["frame_index", "frame_idx"])
@@ -98,6 +119,62 @@ def load_both_hands_world(stem: str) -> Tuple[np.ndarray, List[int]]:
     
     print(f"    Loaded world coordinates: hand_0 shape {X0.shape}, hand_1 shape {X1.shape}, combined {X.shape}")
     return X, frames
+
+def load_box_coordinates(stem: str, frames: List[int]) -> np.ndarray:
+    """
+    Load AprilTag box coordinates from {stem}_box.csv.
+    Returns box coordinates as features.
+    
+    Returns:
+      X_box : [T, D_box] where D_box is the number of box coordinate features
+    """
+    p = BOX_DIR / f"{stem}_box.csv" if BOX_DIR.exists() else None
+    if p is None or not p.exists():
+        # Return empty if box file doesn't exist
+        return np.zeros((len(frames), 0), np.float32)
+    
+    df = _read_csv(p)
+    fcol = _pick_col(df, "frame", ["frame_index", "frame_idx"])
+    
+    # Get all columns except frame column
+    feat_cols = [c for c in df.columns if c != fcol]
+    if not feat_cols:
+        return np.zeros((len(frames), 0), np.float32)
+    
+    # Filter to only numeric columns
+    numeric_feat_cols = []
+    for col in feat_cols:
+        try:
+            converted = pd.to_numeric(df[col], errors='coerce')
+            if not converted.isna().all():
+                numeric_feat_cols.append(col)
+        except (ValueError, TypeError):
+            continue
+    
+    if not numeric_feat_cols:
+        return np.zeros((len(frames), 0), np.float32)
+    
+    # Convert to numeric with coercion
+    df_numeric = df[[fcol] + numeric_feat_cols].copy()
+    df_numeric[numeric_feat_cols] = df_numeric[numeric_feat_cols].apply(pd.to_numeric, errors='coerce')
+    
+    # Build rows dictionary
+    rows = {}
+    for _, row in df_numeric.iterrows():
+        frame_idx = int(row[fcol])
+        feat_values = row[numeric_feat_cols].to_numpy(np.float32)
+        rows[frame_idx] = feat_values
+    
+    D = len(numeric_feat_cols)
+    X = np.zeros((len(frames), D), np.float32)
+    for i, f in enumerate(frames):
+        if f in rows:
+            X[i] = rows[f]
+    
+    # Replace any remaining NaN with 0
+    X = np.nan_to_num(X, nan=0.0)
+    print(f"    Loaded box coordinates: shape {X.shape}")
+    return X
 
 def load_vertices(stem: str, frames: List[int]) -> np.ndarray:
     p = VERTICES_DIR / f"{stem}_vertices.csv"
@@ -148,10 +225,14 @@ def load_vertices(stem: str, frames: List[int]) -> np.ndarray:
     return X
 
 def load_features(stem: str) -> Tuple[np.ndarray, List[int]]:
-    """Load world coordinates for both hands per frame (input features)."""
+    """
+    Load input features: both hands world coordinates + box coordinates + optional vertices.
+    Returns concatenated features: [hands || box || vertices]
+    """
     X_h, frames = load_both_hands_world(stem)
+    X_b = load_box_coordinates(stem, frames)
     X_v = load_vertices(stem, frames)
-    X   = np.concatenate([X_h, X_v], axis=1)  # X_v may be width 0 if vertices absent
+    X   = np.concatenate([X_h, X_b, X_v], axis=1)  # X_b and X_v may be width 0 if absent
     return X, frames
 
 # ---------- receiving hand (target) loader ----------
@@ -159,10 +240,18 @@ def load_receiving_hand_world(stem: str) -> Tuple[np.ndarray, List[int]]:
     """
     Load receiving hand (hand_1) world coordinates as targets.
     Returns world coordinates for all 21 landmarks (63 features: x,y,z for each).
+    
+    Tries new format first: {stem}_hands.csv from HANDS_DIR
+    Falls back to old format: {stem}_world.csv from WORLD_DIR
     """
-    p = WORLD_DIR / f"{stem}_world.csv"
+    # Try new format first
+    p = HANDS_DIR / f"{stem}_hands.csv" if HANDS_DIR.exists() else None
+    if p is None or not p.exists():
+        # Fallback to old format
+        p = WORLD_DIR / f"{stem}_world.csv"
+    
     if not p.exists():
-        raise FileNotFoundError(f"Missing world CSV: {p}")
+        raise FileNotFoundError(f"Missing hands CSV: {p}")
     
     df = _read_csv(p)
     fcol = _pick_col(df, "frame", ["frame_index", "frame_idx"])

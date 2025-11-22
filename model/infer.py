@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import torch
 import cv2
-from .config import CKPT_PATH, PRED_DIR, VIDEO_DIR, SEQ_LEN, FUTURE_FRAMES, WORLD_DIR, ROOT
+from .config import CKPT_PATH, PRED_DIR, VIDEO_DIR, SEQ_LEN, FUTURE_FRAMES, HANDS_DIR, WORLD_DIR, ROOT
 from .data import load_features, load_receiving_hand_world, _read_csv, _pick_col
 from .model import HandoverTransformer
 
@@ -69,10 +69,18 @@ def load_giving_hand_world(stem: str) -> tuple[np.ndarray, list[int]]:
     """
     Load giving hand (hand_0) world coordinates.
     Returns world coordinates for all 21 landmarks (63 features: x,y,z for each).
+    
+    Tries new format first: {stem}_hands.csv from HANDS_DIR
+    Falls back to old format: {stem}_world.csv from WORLD_DIR
     """
-    p = WORLD_DIR / f"{stem}_world.csv"
+    # Try new format first
+    p = HANDS_DIR / f"{stem}_hands.csv" if HANDS_DIR.exists() else None
+    if p is None or not p.exists():
+        # Fallback to old format
+        p = WORLD_DIR / f"{stem}_world.csv"
+    
     if not p.exists():
-        raise FileNotFoundError(f"Missing world CSV: {p}")
+        raise FileNotFoundError(f"Missing hands CSV: {p}")
     
     df = _read_csv(p)
     fcol = _pick_col(df, "frame", ["frame_index", "frame_idx"])
