@@ -47,6 +47,7 @@ def list_stems() -> List[str]:
             stems.append(stem)
     else:
         print(f"  WARNING: HANDS_DIR does not exist: {HANDS_DIR}")
+        print(f"  Directory will be created automatically. Please add your data files there.")
     
     # Fallback to old format if new format not found
     if not stems and WORLD_DIR.exists():
@@ -57,11 +58,20 @@ def list_stems() -> List[str]:
             stems.append(p.stem.replace("_world", ""))
     
     if not stems:
-        print(f"  ERROR: No data files found!")
-        print(f"    Checked HANDS_DIR: {HANDS_DIR} (exists: {HANDS_DIR.exists()})")
-        print(f"    Checked WORLD_DIR: {WORLD_DIR} (exists: {WORLD_DIR.exists()})")
-        print(f"    Expected format: {{number}}_video_hands.csv in {HANDS_DIR}")
-        print(f"    Or old format: {{stem}}_world.csv in {WORLD_DIR}")
+        print(f"\n  ⚠️  ERROR: No data files found!")
+        print(f"    Checked HANDS_DIR: {HANDS_DIR.resolve()} (exists: {HANDS_DIR.exists()})")
+        if HANDS_DIR.exists():
+            all_files = list(HANDS_DIR.glob("*.csv"))
+            print(f"    Files in HANDS_DIR: {[f.name for f in all_files] if all_files else 'None'}")
+        print(f"    Checked WORLD_DIR: {WORLD_DIR.resolve()} (exists: {WORLD_DIR.exists()})")
+        print(f"\n    📋 Expected file format:")
+        print(f"       New format: {HANDS_DIR.resolve()}/{{number}}_video_hands.csv")
+        print(f"       Examples: 1_video_hands.csv, 2_video_hands.csv, 3_video_hands.csv")
+        print(f"       Old format: {WORLD_DIR.resolve()}/{{stem}}_world.csv")
+        print(f"\n    💡 Please ensure:")
+        print(f"       1. Data files are in the correct directory")
+        print(f"       2. Files follow the naming convention: {{number}}_video_hands.csv")
+        print(f"       3. Files are CSV format and contain hand coordinate data")
     
     print(f"  Discovered {len(stems)} stems: {stems}")
     return sorted(stems)

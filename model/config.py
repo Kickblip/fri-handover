@@ -8,6 +8,10 @@ from pathlib import Path
 MODEL_DATASET_ROOT = Path("model_dataset") / "handover-csv"
 HANDS_DIR = MODEL_DATASET_ROOT / "hands"      # {number}_video_hands.csv
 BOX_DIR   = MODEL_DATASET_ROOT / "box"        # {number}_video_box.csv
+# Create directories if they don't exist (so user knows where to put files)
+HANDS_DIR.mkdir(parents=True, exist_ok=True)
+BOX_DIR.mkdir(parents=True, exist_ok=True)
+
 # Legacy paths (kept for backward compatibility if needed)
 ROOT = Path("dataset")
 WORLD_DIR = ROOT / "mediapipe_outputs" / "csv" / "world"  # Legacy: {stem}_world.csv
