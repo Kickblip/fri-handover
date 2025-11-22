@@ -70,8 +70,7 @@ def load_giving_hand_world(stem: str) -> tuple[np.ndarray, list[int]]:
     Load giving hand (hand_0) world coordinates.
     Returns world coordinates for all 21 landmarks (63 features: x,y,z for each).
     
-    Tries new format first: {stem}_hands.csv from HANDS_DIR
-    Falls back to old format: {stem}_world.csv from WORLD_DIR
+    Expected CSV format: frame_idx, h0_lm0_x, h0_lm0_y, h0_lm0_z, h0_lm1_x, ...
     """
     # Try new format first
     p = HANDS_DIR / f"{stem}_hands.csv" if HANDS_DIR.exists() else None
@@ -83,21 +82,14 @@ def load_giving_hand_world(stem: str) -> tuple[np.ndarray, list[int]]:
         raise FileNotFoundError(f"Missing hands CSV: {p}")
     
     df = _read_csv(p)
-    fcol = _pick_col(df, "frame", ["frame_index", "frame_idx"])
+    fcol = _pick_col(df, "frame_idx", ["frame_index", "frame"])
     frames = df[fcol].astype(int).tolist()
     
-    # Extract all hand_0 world coordinate columns (ending with _0)
-    hand0_cols = [c for c in df.columns if c.endswith("_world_x_0") or 
-                  c.endswith("_world_y_0") or c.endswith("_world_z_0")]
+    # Extract all hand_0 columns (starting with h0_)
+    hand0_cols = [c for c in df.columns if c.startswith("h0_")]
     
     if not hand0_cols:
-        # Fallback: try to find any columns with _0 suffix and x/y/z pattern
-        hand0_cols = [c for c in df.columns if re.search(r"_world_[xyz]_0$", c)]
-    
-    if not hand0_cols:
-        all_cols = list(df.columns)
-        print(f"Available columns in {p.name}: {all_cols[:10]}... (showing first 10)")
-        raise ValueError(f"No hand_0 world coordinates found in {p}. Expected columns ending with '_world_x_0', '_world_y_0', or '_world_z_0'")
+        raise ValueError(f"No hand_0 columns found in {p}. Expected columns starting with 'h0_' (e.g., h0_lm0_x, h0_lm0_y, h0_lm0_z)")
     
     # Sort columns to ensure consistent ordering (x, y, z for each landmark)
     hand0_cols = sorted(hand0_cols)

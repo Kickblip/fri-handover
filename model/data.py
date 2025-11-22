@@ -39,44 +39,18 @@ def list_stems() -> List[str]:
     
     # Check new format: model_dataset/handover-csv/hands/
     if HANDS_DIR.exists():
-        print(f"Scanning for hands files in: {HANDS_DIR.resolve()}")
         found_files = list(HANDS_DIR.glob("*_video_hands.csv"))
-        print(f"  Found {len(found_files)} hands files: {[f.name for f in found_files]}")
         for p in found_files:
             # Extract stem: "1_video_hands.csv" -> "1_video"
             stem = p.stem.replace("_hands", "")
             stems.append(stem)
-    else:
-        print(f"  WARNING: HANDS_DIR does not exist: {HANDS_DIR.resolve()}")
-        print(f"  Expected location: {HANDS_DIR.resolve()}")
-        print(f"  Data files should be in: model_dataset/handover-csv/hands/")
     
     # Fallback to old format ONLY if new format not found (for backward compatibility)
     if not stems and WORLD_DIR.exists():
-        print(f"  ⚠️  No new format files found, falling back to old format")
-        print(f"  Scanning old location: {WORLD_DIR.resolve()}")
         found_files = list(WORLD_DIR.glob("*_world.csv"))
-        print(f"  Found {len(found_files)} world files: {[f.name for f in found_files]}")
         for p in found_files:
             stems.append(p.stem.replace("_world", ""))
     
-    if not stems:
-        print(f"\n  ⚠️  ERROR: No data files found!")
-        print(f"    Checked HANDS_DIR: {HANDS_DIR.resolve()} (exists: {HANDS_DIR.exists()})")
-        if HANDS_DIR.exists():
-            all_files = list(HANDS_DIR.glob("*.csv"))
-            print(f"    Files in HANDS_DIR: {[f.name for f in all_files] if all_files else 'None'}")
-        print(f"    Checked WORLD_DIR: {WORLD_DIR.resolve()} (exists: {WORLD_DIR.exists()})")
-        print(f"\n    📋 Expected file format:")
-        print(f"       New format: {HANDS_DIR.resolve()}/{{number}}_video_hands.csv")
-        print(f"       Examples: 1_video_hands.csv, 2_video_hands.csv, 3_video_hands.csv")
-        print(f"       Old format: {WORLD_DIR.resolve()}/{{stem}}_world.csv")
-        print(f"\n    💡 Please ensure:")
-        print(f"       1. Data files are in the correct directory")
-        print(f"       2. Files follow the naming convention: {{number}}_video_hands.csv")
-        print(f"       3. Files are CSV format and contain hand coordinate data")
-    
-    print(f"  Discovered {len(stems)} stems: {stems}")
     return sorted(stems)
 
 # ---------- feature loaders ----------
@@ -85,13 +59,10 @@ def load_both_hands_world(stem: str) -> Tuple[np.ndarray, List[int]]:
     Load world coordinates (x, y, z) for both hands (hand_0 and hand_1).
     Returns concatenated features: [hand_0 world coords || hand_1 world coords].
     
-    Tries new format first: {stem}_hands.csv from HANDS_DIR
-    Falls back to old format: {stem}_world.csv from WORLD_DIR
+    Expected CSV format:
+    - frame_idx, h0_lm0_x, h0_lm0_y, h0_lm0_z, h0_lm1_x, ... (hand 0)
+    - h1_lm0_x, h1_lm0_y, h1_lm0_z, h1_lm1_x, ... (hand 1)
     
-    Expected CSV format: columns ending with:
-    - '_world_x_0', '_world_y_0', '_world_z_0' for hand 0
-    - '_world_x_1', '_world_y_1', '_world_z_1' for hand 1
-
     Returns:
       X_hands : [T, 126]  (63 features per hand: 21 landmarks × 3 coords)
       frames  : [T] list of frame indices (int)
@@ -106,34 +77,20 @@ def load_both_hands_world(stem: str) -> Tuple[np.ndarray, List[int]]:
         raise FileNotFoundError(f"Missing hands CSV: {p}")
     
     df = _read_csv(p)
-    fcol = _pick_col(df, "frame", ["frame_index", "frame_idx"])
+    fcol = _pick_col(df, "frame_idx", ["frame_index", "frame"])
     frames = df[fcol].astype(int).tolist()
     
-    # Extract hand_0 world coordinate columns (ending with _0)
-    hand0_cols = [c for c in df.columns if c.endswith("_world_x_0") or 
-                  c.endswith("_world_y_0") or c.endswith("_world_z_0")]
+    # Extract hand_0 columns (starting with h0_)
+    hand0_cols = [c for c in df.columns if c.startswith("h0_")]
+    
+    # Extract hand_1 columns (starting with h1_)
+    hand1_cols = [c for c in df.columns if c.startswith("h1_")]
     
     if not hand0_cols:
-        # Fallback: try to find any columns with _0 suffix and x/y/z pattern
-        hand0_cols = [c for c in df.columns if re.search(r"_world_[xyz]_0$", c)]
-    
-    # Extract hand_1 world coordinate columns (ending with _1)
-    hand1_cols = [c for c in df.columns if c.endswith("_world_x_1") or 
-                  c.endswith("_world_y_1") or c.endswith("_world_z_1")]
+        raise ValueError(f"No hand_0 columns found in {p}. Expected columns starting with 'h0_' (e.g., h0_lm0_x, h0_lm0_y, h0_lm0_z)")
     
     if not hand1_cols:
-        # Fallback: try to find any columns with _1 suffix and x/y/z pattern
-        hand1_cols = [c for c in df.columns if re.search(r"_world_[xyz]_1$", c)]
-    
-    if not hand0_cols:
-        all_cols = list(df.columns)
-        print(f"Available columns in {p.name}: {all_cols[:10]}... (showing first 10)")
-        raise ValueError(f"No hand_0 world coordinates found in {p}. Expected columns ending with '_world_x_0', '_world_y_0', or '_world_z_0'")
-    
-    if not hand1_cols:
-        all_cols = list(df.columns)
-        print(f"Available columns in {p.name}: {all_cols[:10]}... (showing first 10)")
-        raise ValueError(f"No hand_1 world coordinates found in {p}. Expected columns ending with '_world_x_1', '_world_y_1', or '_world_z_1'")
+        raise ValueError(f"No hand_1 columns found in {p}. Expected columns starting with 'h1_' (e.g., h1_lm0_x, h1_lm0_y, h1_lm0_z)")
     
     # Sort columns to ensure consistent ordering (x, y, z for each landmark)
     hand0_cols = sorted(hand0_cols)
@@ -150,13 +107,14 @@ def load_both_hands_world(stem: str) -> Tuple[np.ndarray, List[int]]:
     # Concatenate both hands: [hand_0 || hand_1]
     X = np.concatenate([X0, X1], axis=1)  # [T, 126]
     
-    print(f"    Loaded world coordinates: hand_0 shape {X0.shape}, hand_1 shape {X1.shape}, combined {X.shape}")
     return X, frames
 
 def load_box_coordinates(stem: str, frames: List[int]) -> np.ndarray:
     """
     Load AprilTag box coordinates from {stem}_box.csv.
-    Returns box coordinates as features.
+    
+    Expected CSV format: frame_idx, tag_id, coord_frame, v0_x, v0_y, v0_z, v1_x, v1_y, v1_z, ...
+    Returns only the vertex coordinates (v*_x, v*_y, v*_z columns).
     
     Returns:
       X_box : [T, D_box] where D_box is the number of box coordinate features
@@ -167,38 +125,29 @@ def load_box_coordinates(stem: str, frames: List[int]) -> np.ndarray:
         return np.zeros((len(frames), 0), np.float32)
     
     df = _read_csv(p)
-    fcol = _pick_col(df, "frame", ["frame_index", "frame_idx"])
+    fcol = _pick_col(df, "frame_idx", ["frame_index", "frame"])
     
-    # Get all columns except frame column
-    feat_cols = [c for c in df.columns if c != fcol]
-    if not feat_cols:
+    # Extract vertex coordinate columns (v*_x, v*_y, v*_z)
+    vertex_cols = [c for c in df.columns if re.match(r"v\d+_[xyz]$", c)]
+    
+    if not vertex_cols:
         return np.zeros((len(frames), 0), np.float32)
     
-    # Filter to only numeric columns
-    numeric_feat_cols = []
-    for col in feat_cols:
-        try:
-            converted = pd.to_numeric(df[col], errors='coerce')
-            if not converted.isna().all():
-                numeric_feat_cols.append(col)
-        except (ValueError, TypeError):
-            continue
-    
-    if not numeric_feat_cols:
-        return np.zeros((len(frames), 0), np.float32)
+    # Sort columns to ensure consistent ordering
+    vertex_cols = sorted(vertex_cols)
     
     # Convert to numeric with coercion
-    df_numeric = df[[fcol] + numeric_feat_cols].copy()
-    df_numeric[numeric_feat_cols] = df_numeric[numeric_feat_cols].apply(pd.to_numeric, errors='coerce')
+    df_numeric = df[[fcol] + vertex_cols].copy()
+    df_numeric[vertex_cols] = df_numeric[vertex_cols].apply(pd.to_numeric, errors='coerce')
     
     # Build rows dictionary
     rows = {}
     for _, row in df_numeric.iterrows():
         frame_idx = int(row[fcol])
-        feat_values = row[numeric_feat_cols].to_numpy(np.float32)
+        feat_values = row[vertex_cols].to_numpy(np.float32)
         rows[frame_idx] = feat_values
     
-    D = len(numeric_feat_cols)
+    D = len(vertex_cols)
     X = np.zeros((len(frames), D), np.float32)
     for i, f in enumerate(frames):
         if f in rows:
@@ -206,7 +155,6 @@ def load_box_coordinates(stem: str, frames: List[int]) -> np.ndarray:
     
     # Replace any remaining NaN with 0
     X = np.nan_to_num(X, nan=0.0)
-    print(f"    Loaded box coordinates: shape {X.shape}")
     return X
 
 def load_vertices(stem: str, frames: List[int]) -> np.ndarray:
@@ -274,8 +222,7 @@ def load_receiving_hand_world(stem: str) -> Tuple[np.ndarray, List[int]]:
     Load receiving hand (hand_1) world coordinates as targets.
     Returns world coordinates for all 21 landmarks (63 features: x,y,z for each).
     
-    Tries new format first: {stem}_hands.csv from HANDS_DIR
-    Falls back to old format: {stem}_world.csv from WORLD_DIR
+    Expected CSV format: frame_idx, h1_lm0_x, h1_lm0_y, h1_lm0_z, h1_lm1_x, ...
     """
     # Try new format first
     p = HANDS_DIR / f"{stem}_hands.csv" if HANDS_DIR.exists() else None
@@ -287,28 +234,19 @@ def load_receiving_hand_world(stem: str) -> Tuple[np.ndarray, List[int]]:
         raise FileNotFoundError(f"Missing hands CSV: {p}")
     
     df = _read_csv(p)
-    fcol = _pick_col(df, "frame", ["frame_index", "frame_idx"])
+    fcol = _pick_col(df, "frame_idx", ["frame_index", "frame"])
     frames = df[fcol].astype(int).tolist()
     
-    # Extract all hand_1 world coordinate columns (ending with _1)
-    hand1_cols = [c for c in df.columns if c.endswith("_world_x_1") or 
-                  c.endswith("_world_y_1") or c.endswith("_world_z_1")]
+    # Extract all hand_1 columns (starting with h1_)
+    hand1_cols = [c for c in df.columns if c.startswith("h1_")]
     
     if not hand1_cols:
-        # Fallback: try to find any columns with _1 suffix and x/y/z pattern
-        hand1_cols = [c for c in df.columns if re.search(r"_world_[xyz]_1$", c)]
-    
-    if not hand1_cols:
-        # Last resort: any column with _1 that looks like coordinates
-        all_cols = list(df.columns)
-        print(f"Available columns in {p.name}: {all_cols[:10]}... (showing first 10)")
-        raise ValueError(f"No hand_1 world coordinates found in {p}. Expected columns ending with '_world_x_1', '_world_y_1', or '_world_z_1'")
+        raise ValueError(f"No hand_1 columns found in {p}. Expected columns starting with 'h1_' (e.g., h1_lm0_x, h1_lm0_y, h1_lm0_z)")
     
     # Sort columns to ensure consistent ordering (x, y, z for each landmark)
     hand1_cols = sorted(hand1_cols)
     
     # Extract features - convert to numeric, coercing errors to NaN
-    # This handles any non-numeric values (strings, empty cells) by converting them to NaN
     X = df[hand1_cols].apply(pd.to_numeric, errors='coerce').to_numpy(np.float32)
     
     # Replace NaN with 0
@@ -347,11 +285,9 @@ def make_sequences_with_targets(X_input: np.ndarray, X_target: np.ndarray,
     # Calculate valid range for sequences
     min_required = seq_len + future_frames  # Need at least this many frames
     if len(X_input) < min_required:
-        print(f"      WARNING: Only {len(X_input)} frames available, need at least {min_required} (seq_len={seq_len} + future_frames={future_frames})")
         return torch.empty(0), torch.empty(0)
     
     valid_range = range(seq_len - 1, len(X_input) - future_frames, stride)
-    print(f"      Creating sequences: range({seq_len - 1}, {len(X_input) - future_frames}, {stride}) = {list(valid_range)[:5]}... (showing first 5)")
     
     for end in valid_range:
         start = end - (seq_len - 1)
@@ -374,10 +310,8 @@ def make_sequences_with_targets(X_input: np.ndarray, X_target: np.ndarray,
         ys.append(y_future)
     
     if not xs:
-        print(f"      WARNING: No sequences created (valid range was empty)")
         return torch.empty(0), torch.empty(0)
     
-    print(f"      Created {len(xs)} sequences")
     Xs = torch.tensor(np.stack(xs, 0), dtype=torch.float32)
     Ys = torch.tensor(np.stack(ys, 0), dtype=torch.float32)
     return Xs, Ys
@@ -389,18 +323,13 @@ class HandoverDataset(Dataset):
         for s in stems:
             try:
                 # Load input features (both hands world coordinates + optional vertices)
-                print(f"  Loading {s}...")
                 X_input, frames_input = load_features(s)
-                print(f"    Input features shape: {X_input.shape}, frames: {len(frames_input)}")
                 
                 # Load target features (receiving hand world coordinates)
                 X_target, frames_target = load_receiving_hand_world(s)
-                print(f"    Target features shape: {X_target.shape}, frames: {len(frames_target)}")
                 
                 # Align frames - use common frames
-                # Simple approach: use minimum length
                 min_len = min(len(X_input), len(X_target))
-                print(f"    Aligning to {min_len} frames (min of input={len(X_input)}, target={len(X_target)})")
                 X_input = X_input[:min_len]
                 X_target = X_target[:min_len]
                 frames = frames_input[:min_len]
@@ -409,19 +338,13 @@ class HandoverDataset(Dataset):
                 xs, ys = make_sequences_with_targets(
                     X_input, X_target, frames, seq_len, stride, future_frames
                 )
-                print(f"    Created {len(xs)} sequences from {min_len} frames")
                 
                 if len(xs) == 0:
-                    print(f"    WARNING: No valid sequences created for {s} (need at least {seq_len + future_frames} = {seq_len + future_frames} frames, have {min_len})")
                     continue
                 
                 for i in range(len(xs)):
                     self.samples.append((xs[i], ys[i]))
-                print(f"    Added {len(xs)} samples from {s}")
             except Exception as e:
-                import traceback
-                print(f"Warning: Skipping {s} due to error: {e}")
-                print(f"  Traceback: {traceback.format_exc()}")
                 continue
         
         if len(self.samples) == 0:
@@ -467,13 +390,10 @@ def split_stems(stems_to_use: Optional[List[str]] = None):
     
     # Handle small datasets
     if n == 1:
-        print(f"  Only 1 stem available: using all for training")
         return stems_shuffled, [], []
     elif n == 2:
-        print(f"  Only 2 stems available: 1 train, 1 validation")
         return stems_shuffled[:1], stems_shuffled[1:2], []
     elif n == 3:
-        print(f"  Only 3 stems available: 1 train, 1 validation, 1 test")
         return stems_shuffled[:1], stems_shuffled[1:2], stems_shuffled[2:3]
     else:
         # Use configured split ratios
@@ -490,9 +410,6 @@ def split_stems(stems_to_use: Optional[List[str]] = None):
         val_stems = stems_shuffled[n_train:n_train + n_val]
         test_stems = stems_shuffled[n_train + n_val:]
         
-        print(f"  Split {n} stems: {n_train} train ({TRAIN_SPLIT*100:.0f}%), "
-              f"{n_val} val ({VAL_SPLIT*100:.0f}%), {len(test_stems)} test ({len(test_stems)/n*100:.0f}%)")
-        
         return train_stems, val_stems, test_stems
 
 def build_loaders(stems_to_use: Optional[List[str]] = None):
@@ -500,76 +417,31 @@ def build_loaders(stems_to_use: Optional[List[str]] = None):
     Build data loaders.
     If stems_to_use is provided, only uses those stems for training.
     """
-    print(f"\n{'='*60}")
-    print(f"Building loaders with stems_to_use={stems_to_use}")
-    print(f"{'='*60}")
-    
-    # First, discover all available stems
     all_available_stems = list_stems()
-    print(f"\nAll available stems: {all_available_stems}")
-    
     tr, va, te = split_stems(stems_to_use)
-    print(f"\nSplit result: train={len(tr)} stems {tr}, val={len(va)} stems {va}, test={len(te)} stems {te}")
     
     def mk(ss, shuf):
         """Create DataLoader, handling empty datasets."""
         if not ss:
-            print(f"  No stems provided for this split")
             return None
-        
-        print(f"  Creating dataset from {len(ss)} stems: {ss}")
         try:
             dataset = HandoverDataset(ss, SEQ_LEN, SEQ_STRIDE, FUTURE_FRAMES)
             if len(dataset) == 0:
-                print(f"  Dataset created but has 0 samples")
                 return None
-            print(f"  Dataset created with {len(dataset)} samples")
             return DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=shuf, drop_last=False)
-        except RuntimeError as e:
-            print(f"  Error creating dataset: {e}")
-            import traceback
-            print(f"  Full traceback:\n{traceback.format_exc()}")
-            return None
-        except Exception as e:
-            print(f"  Unexpected error: {e}")
-            import traceback
-            print(f"  Full traceback:\n{traceback.format_exc()}")
+        except Exception:
             return None
     
-    print("\nCreating train loader...")
     train_ld = mk(tr, True)
-    print("\nCreating val loader...")
     val_ld = mk(va, False)
-    print("\nCreating test loader...")
     test_ld = mk(te, False)
     
     if train_ld is None:
         available_stems = list_stems()
-        error_msg = "\n" + "="*60 + "\n"
-        error_msg += "ERROR: Train dataset is empty!\n"
-        error_msg += "="*60 + "\n"
-        error_msg += f"\n📁 Expected data locations:\n"
-        error_msg += f"   Hands files: {HANDS_DIR.resolve()}\n"
-        error_msg += f"   Box files:   {BOX_DIR.resolve()}\n"
-        error_msg += f"\n📋 File naming format:\n"
-        error_msg += f"   Hands: {{number}}_video_hands.csv (e.g., 1_video_hands.csv, 2_video_hands.csv)\n"
-        error_msg += f"   Box:   {{number}}_video_box.csv (e.g., 1_video_box.csv, 2_video_box.csv)\n"
-        error_msg += f"\n🔍 Current status:\n"
-        error_msg += f"   HANDS_DIR exists: {HANDS_DIR.exists()}\n"
-        error_msg += f"   BOX_DIR exists:   {BOX_DIR.exists()}\n"
-        if HANDS_DIR.exists():
-            hands_files = list(HANDS_DIR.glob("*.csv"))
-            error_msg += f"   Files in HANDS_DIR: {len(hands_files)} ({[f.name for f in hands_files[:5]]}...)\n"
-        if BOX_DIR.exists():
-            box_files = list(BOX_DIR.glob("*.csv"))
-            error_msg += f"   Files in BOX_DIR:   {len(box_files)} ({[f.name for f in box_files[:5]]}...)\n"
-        error_msg += f"\n💡 Possible causes:\n"
-        error_msg += f"   1. Data files not found in expected locations (data may not be on this machine)\n"
-        error_msg += f"   2. Requested stems not found: {stems_to_use}\n"
-        error_msg += f"      Available stems: {available_stems}\n"
-        error_msg += f"   3. Files exist but have insufficient frames (need at least {SEQ_LEN + FUTURE_FRAMES} frames)\n"
-        error_msg += f"   4. Files exist but failed to load (check error messages above)\n"
-        error_msg += "="*60 + "\n"
-        raise RuntimeError(error_msg)
+        raise RuntimeError(
+            f"Train dataset is empty. "
+            f"Expected files in {HANDS_DIR} (format: {{number}}_video_hands.csv). "
+            f"Found {len(available_stems)} stems: {available_stems}"
+        )
     
     return train_ld, val_ld, test_ld
