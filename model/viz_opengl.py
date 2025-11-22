@@ -1,21 +1,15 @@
 """
 OpenGL visualization to compare actual vs predicted receiving-hand landmarks in 3D.
+Outputs a video file showing the comparison over time with timestamps.
 
 Usage:
-    python -m model.viz_opengl <stem> [--pred path/to/predictions.csv]
-
-Controls:
-    - Mouse drag: Rotate camera
-    - Mouse wheel: Zoom in/out
-    - Arrow keys: Navigate frames
-    - Space: Play/pause animation
-    - R: Reset camera
-    - Q/ESC: Quit
+    python -m model.viz_opengl <stem> [--pred path/to/predictions.csv] [--output path/to/output.mp4]
 
 Visualization:
     - Actual hand landmarks   → GREEN points with connections
     - Predicted hand landmarks → RED points with connections
     - Error lines (if enabled) → YELLOW lines connecting actual to predicted
+    - Timestamp displayed in seconds
 """
 from __future__ import annotations
 
@@ -26,6 +20,7 @@ from typing import Dict, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+import cv2
 
 try:
     import OpenGL.GL as gl
@@ -38,6 +33,8 @@ try:
         GL_POINTS,
         GL_PROJECTION,
         GL_MODELVIEW,
+        GL_RGB,
+        GL_UNSIGNED_BYTE,
         glBegin,
         glClear,
         glClearColor,
@@ -47,6 +44,7 @@ try:
         glLoadIdentity,
         glMatrixMode,
         glPointSize,
+        glReadPixels,
         glRotatef,
         glTranslatef,
         glVertex3f,
@@ -62,7 +60,7 @@ except ImportError:
     print("Error: GLFW is required. Install with: pip install glfw")
     sys.exit(1)
 
-from .config import PRED_DIR, HANDS_DIR
+from .config import PRED_DIR, HANDS_DIR, VIDEO_DIR
 from .data import load_receiving_hand_world, _read_csv, _pick_col
 
 
@@ -82,11 +80,12 @@ HAND_CONNECTIONS = [
 
 
 class OpenGLViewer:
-    def __init__(self, stem: str, pred_path: Optional[Path] = None):
+    def __init__(self, stem: str, pred_path: Optional[Path] = None, output_path: Optional[Path] = None):
         self.stem = stem
         self.window = None
         self.width = 1280
         self.height = 720
+        self.output_path = output_path
         
         # Camera state
         self.rot_x = 30.0
@@ -110,6 +109,7 @@ class OpenGLViewer:
         self.actual_map: Dict[int, np.ndarray] = {}
         self.pred_map: Dict[int, np.ndarray] = {}
         self.shared_frames: list[int] = []
+        self.frame_to_time: Dict[int, float] = {}  # Map frame index to time in seconds
         
         # Visualization options
         self.show_connections = True
@@ -167,6 +167,10 @@ class OpenGLViewer:
             raise RuntimeError("No overlapping frames between predictions and ground truth.")
         
         print(f"Loaded {len(self.shared_frames)} frames with both actual and predicted data")
+        
+        # Create frame to time mapping (assuming 30 FPS)
+        for i, frame in enumerate(self.shared_frames):
+            self.frame_to_time[frame] = i / self.fps
         
         # Calculate bounding box for camera setup
         all_points = []
@@ -269,6 +273,102 @@ class OpenGLViewer:
         gl.glVertex3f(0, 0, 0)
         gl.glVertex3f(0, 0, 0.1)
         gl.glEnd()
+    
+    def read_pixels(self) -> np.ndarray:
+        """Read pixels from OpenGL framebuffer and return as numpy array (BGR format for OpenCV)."""
+        pixels = gl.glReadPixels(0, 0, self.width, self.height, GL_RGB, GL_UNSIGNED_BYTE)
+        img = np.frombuffer(pixels, dtype=np.uint8)
+        img = img.reshape((self.height, self.width, 3))
+        # Flip vertically (OpenGL origin is bottom-left, OpenCV is top-left)
+        img = np.flipud(img)
+        # Convert RGB to BGR for OpenCV
+        img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+        return img_bgr
+    
+    def add_text_overlay(self, img: np.ndarray, text: str, position: Tuple[int, int] = (10, 30)):
+        """Add text overlay to image."""
+        cv2.putText(
+            img, text, position,
+            cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA
+        )
+        return img
+    
+    def render_video(self):
+        """Render all frames to a video file."""
+        if self.output_path is None:
+            self.output_path = VIDEO_DIR / f"{self.stem}_opengl_comparison.mp4"
+        
+        self.output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        print(f"Rendering video to: {self.output_path}")
+        print(f"Total frames: {len(self.shared_frames)}")
+        
+        # Initialize video writer
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        writer = cv2.VideoWriter(str(self.output_path), fourcc, self.fps, (self.width, self.height))
+        
+        if not writer.isOpened():
+            raise RuntimeError(f"Failed to open video writer: {self.output_path}")
+        
+        # Initialize OpenGL context (headless)
+        if not glfw.init():
+            raise RuntimeError("Failed to initialize GLFW")
+        
+        glfw.window_hint(glfw.VISIBLE, glfw.FALSE)  # Hide window
+        glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 2)
+        glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 1)
+        
+        self.window = glfw.create_window(self.width, self.height, "", None, None)
+        if not self.window:
+            glfw.terminate()
+            raise RuntimeError("Failed to create GLFW window")
+        
+        glfw.make_context_current(self.window)
+        self.init_gl()
+        
+        # Auto-rotate camera for better visualization
+        auto_rotate = True
+        rotation_speed = 0.5  # degrees per frame
+        
+        try:
+            for frame_idx in range(len(self.shared_frames)):
+                self.current_frame_idx = frame_idx
+                frame = self.shared_frames[frame_idx]
+                time_sec = self.frame_to_time.get(frame, frame_idx / self.fps)
+                
+                # Auto-rotate camera
+                if auto_rotate:
+                    self.rot_y = (self.rot_y + rotation_speed) % 360.0
+                
+                # Render frame
+                gl.glViewport(0, 0, self.width, self.height)
+                self.setup_projection()
+                self.render()
+                
+                # Read pixels
+                img = self.read_pixels()
+                
+                # Add text overlay with timestamp
+                time_text = f"Time: {time_sec:.2f}s | Frame: {frame}"
+                self.add_text_overlay(img, time_text, (10, 30))
+                
+                # Add legend
+                legend_y = 60
+                self.add_text_overlay(img, "Actual (Green)", (10, legend_y))
+                self.add_text_overlay(img, "Predicted (Red)", (10, legend_y + 30))
+                
+                # Write frame
+                writer.write(img)
+                
+                if (frame_idx + 1) % 10 == 0:
+                    print(f"Rendered {frame_idx + 1}/{len(self.shared_frames)} frames")
+        
+        finally:
+            writer.release()
+            glfw.destroy_window(self.window)
+            glfw.terminate()
+        
+        print(f"✓ Video saved: {self.output_path.resolve()}")
         
     def mouse_button_callback(self, window, button, action, mods):
         """Handle mouse button events."""
@@ -393,10 +493,27 @@ def main():
         default=None,
         help="Optional custom predictions CSV (defaults to dataset/model_output/predictions/<stem>_future_predictions.csv)",
     )
+    ap.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Output video path (defaults to dataset/model_output/videos/<stem>_opengl_comparison.mp4). If not provided, opens interactive viewer.",
+    )
+    ap.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Open interactive viewer instead of rendering video (default: render video if --output is provided)",
+    )
     args = ap.parse_args()
     
-    viewer = OpenGLViewer(args.stem, args.pred)
-    viewer.run()
+    viewer = OpenGLViewer(args.stem, args.pred, args.output)
+    
+    if args.interactive or args.output is None:
+        # Interactive mode
+        viewer.run()
+    else:
+        # Video rendering mode
+        viewer.render_video()
 
 
 if __name__ == "__main__":
