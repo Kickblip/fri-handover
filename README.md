@@ -25,6 +25,6 @@ python -m model.train
 ```
 #Inference with video
 ```
-python -m model.infer 1_w_b --video
+python -m model.infer 1_video --video
 ```
 The video will be saved to dataset/model_output/videos/<stem>_predicted_future.mp4 showing the predicted future frames of the receiving hand.
