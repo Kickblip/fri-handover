@@ -69,38 +69,19 @@ def load_giving_hand_world(stem: str) -> tuple[np.ndarray, list[int]]:
     """
     Load giving hand (hand_0) world coordinates.
     Returns world coordinates for all 21 landmarks (63 features: x,y,z for each).
+    Uses the same consistency fix as load_both_hands_world to ensure hand0 stays consistent.
     
     Expected CSV format: frame_idx, h0_lm0_x, h0_lm0_y, h0_lm0_z, h0_lm1_x, ...
     """
-    # Try new format first
-    p = HANDS_DIR / f"{stem}_hands.csv" if HANDS_DIR.exists() else None
-    if p is None or not p.exists():
-        # Fallback to old format
-        p = WORLD_DIR / f"{stem}_world.csv"
+    # Load both hands with consistency fix, then extract only hand0
+    # This ensures hand0 is consistently labeled throughout the video
+    from .data import load_both_hands_world
+    X_both, frames = load_both_hands_world(stem)
     
-    if not p.exists():
-        raise FileNotFoundError(f"Missing hands CSV: {p}")
+    # Extract hand0 (first half: indices 0-62)
+    X0 = X_both[:, 0:63]  # [T, 63]
     
-    df = _read_csv(p)
-    fcol = _pick_col(df, "frame_idx", ["frame_index", "frame"])
-    frames = df[fcol].astype(int).tolist()
-    
-    # Extract all hand_0 columns (starting with h0_)
-    hand0_cols = [c for c in df.columns if c.startswith("h0_")]
-    
-    if not hand0_cols:
-        raise ValueError(f"No hand_0 columns found in {p}. Expected columns starting with 'h0_' (e.g., h0_lm0_x, h0_lm0_y, h0_lm0_z)")
-    
-    # Sort columns to ensure consistent ordering (x, y, z for each landmark)
-    hand0_cols = sorted(hand0_cols)
-    
-    # Extract features - convert to numeric, coercing errors to NaN
-    X = df[hand0_cols].apply(pd.to_numeric, errors='coerce').to_numpy(np.float32)
-    
-    # Replace NaN with 0
-    X = np.nan_to_num(X, nan=0.0)
-    
-    return X, frames
+    return X0, frames
 
 def find_original_video(stem: str) -> Path:
     """Find the original video file by stem name."""

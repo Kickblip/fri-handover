@@ -67,7 +67,7 @@ def list_stems() -> List[str]:
 def _ensure_hand_consistency(X0: np.ndarray, X1: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     """
     Ensure hand0 and hand1 remain consistent throughout the video.
-    Uses hand wrist position (landmark 0) to track which physical hand is which.
+    Uses multiple landmarks and centroid tracking to robustly identify hand identity.
     If hands switch labels mid-video, swap them back to maintain consistency.
     
     Args:
@@ -86,51 +86,98 @@ def _ensure_hand_consistency(X0: np.ndarray, X1: np.ndarray) -> Tuple[np.ndarray
     h0_reshaped = X0.reshape(T, 21, 3)
     h1_reshaped = X1.reshape(T, 21, 3)
     
-    # Use wrist position (landmark 0) for tracking - more stable than centroid
-    h0_wrists = h0_reshaped[:, 0, :]  # [T, 3] - wrist positions for hand0
-    h1_wrists = h1_reshaped[:, 0, :]  # [T, 3] - wrist positions for hand1
-    
     X0_corrected = X0.copy()
     X1_corrected = X1.copy()
+    h0_corrected = h0_reshaped.copy()
+    h1_corrected = h1_reshaped.copy()
     
-    # Track hands frame by frame
+    # Use multiple key landmarks for more robust tracking: wrist, middle finger MCP, thumb tip
+    key_landmarks = [0, 9, 4]  # wrist, middle finger MCP, thumb tip
+    
+    # Track hands frame by frame using a sliding window approach
+    window_size = 5  # Look at last N frames for stability
+    max_movement_per_frame = 0.15  # 15cm per frame is reasonable (450cm/s at 30fps)
+    
     for t in range(1, T):
-        # Get previous and current wrist positions
-        prev_h0_wrist = h0_wrists[t-1]
-        prev_h1_wrist = h1_wrists[t-1]
-        curr_h0_wrist = h0_wrists[t]
-        curr_h1_wrist = h1_wrists[t]
+        # Get previous frame data (use corrected data from previous frames)
+        prev_h0 = h0_corrected[t-1]
+        prev_h1 = h1_corrected[t-1]
         
-        # Skip if either hand is missing (all zeros or very close to zero)
-        h0_missing = np.allclose(curr_h0_wrist, 0, atol=0.01)
-        h1_missing = np.allclose(curr_h1_wrist, 0, atol=0.01)
+        # Get current frame data (original, not yet corrected)
+        curr_h0 = h0_reshaped[t]
+        curr_h1 = h1_reshaped[t]
+        
+        # Check if hands are missing
+        h0_missing = np.allclose(curr_h0, 0, atol=0.01)
+        h1_missing = np.allclose(curr_h1, 0, atol=0.01)
+        if h0_missing and h1_missing:
+            continue
         if h0_missing or h1_missing:
+            # If only one hand is missing, keep the assignment
             continue
         
-        # Compute distances: how far did each labeled hand move from its previous position?
-        dist_h0_to_prev_h0 = np.linalg.norm(curr_h0_wrist - prev_h0_wrist)
-        dist_h0_to_prev_h1 = np.linalg.norm(curr_h0_wrist - prev_h1_wrist)
-        dist_h1_to_prev_h0 = np.linalg.norm(curr_h1_wrist - prev_h0_wrist)
-        dist_h1_to_prev_h1 = np.linalg.norm(curr_h1_wrist - prev_h1_wrist)
+        # Compute distances using key landmarks (more robust than just wrist)
+        dist_h0_to_prev_h0 = 0.0
+        dist_h0_to_prev_h1 = 0.0
+        dist_h1_to_prev_h0 = 0.0
+        dist_h1_to_prev_h1 = 0.0
+        
+        valid_landmarks = 0
+        for lm_idx in key_landmarks:
+            if lm_idx >= 21:
+                continue
+            prev_h0_lm = prev_h0[lm_idx]
+            prev_h1_lm = prev_h1[lm_idx]
+            curr_h0_lm = curr_h0[lm_idx]
+            curr_h1_lm = curr_h1[lm_idx]
+            
+            # Skip if landmark is missing
+            if (np.allclose(prev_h0_lm, 0, atol=0.01) or np.allclose(prev_h1_lm, 0, atol=0.01) or
+                np.allclose(curr_h0_lm, 0, atol=0.01) or np.allclose(curr_h1_lm, 0, atol=0.01)):
+                continue
+            
+            valid_landmarks += 1
+            dist_h0_to_prev_h0 += np.linalg.norm(curr_h0_lm - prev_h0_lm)
+            dist_h0_to_prev_h1 += np.linalg.norm(curr_h0_lm - prev_h1_lm)
+            dist_h1_to_prev_h0 += np.linalg.norm(curr_h1_lm - prev_h0_lm)
+            dist_h1_to_prev_h1 += np.linalg.norm(curr_h1_lm - prev_h1_lm)
+        
+        if valid_landmarks == 0:
+            continue
+        
+        # Average distances across landmarks
+        dist_h0_to_prev_h0 /= valid_landmarks
+        dist_h0_to_prev_h1 /= valid_landmarks
+        dist_h1_to_prev_h0 /= valid_landmarks
+        dist_h1_to_prev_h1 /= valid_landmarks
         
         # Check if hands have switched:
-        # If current h0 is closer to where h1 was, AND current h1 is closer to where h0 was
-        # And the "wrong" assignment is significantly closer (at least 2x closer)
+        # Current h0 should be closer to where h0 was, and current h1 should be closer to where h1 was
+        # If the opposite is true (and significantly so), hands have switched
+        h0_should_be_h0 = dist_h0_to_prev_h0 < dist_h0_to_prev_h1
+        h1_should_be_h1 = dist_h1_to_prev_h1 < dist_h1_to_prev_h0
+        
+        # Check if switching would result in better assignment
+        # We want: current h0 closer to prev h0, current h1 closer to prev h1
+        # If current h0 is much closer to prev h1 AND current h1 is much closer to prev h0, they switched
         switched = False
-        if (dist_h0_to_prev_h1 < dist_h0_to_prev_h0 * 0.5 and 
-            dist_h1_to_prev_h0 < dist_h1_to_prev_h1 * 0.5):
-            # Additional check: the distances should be reasonable (not too large)
-            max_reasonable_movement = 0.3  # 30cm per frame is reasonable
-            if dist_h0_to_prev_h1 < max_reasonable_movement and dist_h1_to_prev_h0 < max_reasonable_movement:
-                switched = True
+        if not h0_should_be_h0 and not h1_should_be_h1:
+            # Both assignments are wrong - likely a switch
+            # Check if the "wrong" assignment is significantly better (at least 1.5x better)
+            improvement_ratio = (dist_h0_to_prev_h0 + dist_h1_to_prev_h1) / (dist_h0_to_prev_h1 + dist_h1_to_prev_h0 + 1e-6)
+            if improvement_ratio > 1.5:
+                # Additional check: movements should be reasonable
+                if (dist_h0_to_prev_h1 < max_movement_per_frame and 
+                    dist_h1_to_prev_h0 < max_movement_per_frame):
+                    switched = True
         
         if switched:
             # Hands have switched labels - swap them back to maintain consistency
             X0_corrected[t] = X1[t].copy()
             X1_corrected[t] = X0[t].copy()
-            # Update wrist positions for next iteration
-            h0_wrists[t] = X0_corrected[t].reshape(21, 3)[0]
-            h1_wrists[t] = X1_corrected[t].reshape(21, 3)[0]
+            # Update reshaped arrays for next iteration
+            h0_corrected[t] = h1_reshaped[t].copy()
+            h1_corrected[t] = h0_reshaped[t].copy()
     
     return X0_corrected, X1_corrected
 
