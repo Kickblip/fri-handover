@@ -39,10 +39,20 @@ def list_stems() -> List[str]:
     
     # Check new format: model_dataset/handover-csv/hands/
     if HANDS_DIR.exists():
+        # Look for files matching pattern: {number}_video_hands.csv
         found_files = list(HANDS_DIR.glob("*_video_hands.csv"))
+        # Also try any CSV files in case naming is slightly different
+        if not found_files:
+            all_csvs = list(HANDS_DIR.glob("*.csv"))
+            # Filter to files that look like they might be hands files
+            found_files = [f for f in all_csvs if "hands" in f.name.lower() or "hand" in f.name.lower()]
+        
         for p in found_files:
             # Extract stem: "1_video_hands.csv" -> "1_video"
-            stem = p.stem.replace("_hands", "")
+            # Handle both "1_video_hands.csv" and potentially "1_video_hands" without extension
+            stem = p.stem
+            if stem.endswith("_hands"):
+                stem = stem.replace("_hands", "")
             stems.append(stem)
     
     # Fallback to old format ONLY if new format not found (for backward compatibility)
@@ -438,10 +448,22 @@ def build_loaders(stems_to_use: Optional[List[str]] = None):
     
     if train_ld is None:
         available_stems = list_stems()
-        raise RuntimeError(
-            f"Train dataset is empty. "
-            f"Expected files in {HANDS_DIR} (format: {{number}}_video_hands.csv). "
-            f"Found {len(available_stems)} stems: {available_stems}"
-        )
+        # Provide more helpful error message
+        error_parts = [f"Train dataset is empty."]
+        error_parts.append(f"Expected files in: {HANDS_DIR.resolve()}")
+        error_parts.append(f"File format: {{number}}_video_hands.csv (e.g., 1_video_hands.csv)")
+        
+        if HANDS_DIR.exists():
+            all_files = list(HANDS_DIR.glob("*.csv"))
+            if all_files:
+                error_parts.append(f"Found {len(all_files)} CSV files: {[f.name for f in all_files[:5]]}")
+            else:
+                error_parts.append(f"Directory exists but contains no CSV files.")
+        else:
+            error_parts.append(f"Directory does not exist: {HANDS_DIR.resolve()}")
+        
+        error_parts.append(f"Found {len(available_stems)} stems: {available_stems}")
+        
+        raise RuntimeError("\n".join(error_parts))
     
     return train_ld, val_ld, test_ld
