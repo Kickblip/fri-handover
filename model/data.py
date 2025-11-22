@@ -14,7 +14,8 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset, DataLoader
 from .config import (HANDS_DIR, BOX_DIR, WORLD_DIR, VERTICES_DIR,
-                     SEQ_LEN, SEQ_STRIDE, BATCH_SIZE, FUTURE_FRAMES)
+                     SEQ_LEN, SEQ_STRIDE, BATCH_SIZE, FUTURE_FRAMES,
+                     TRAIN_SPLIT, VAL_SPLIT, TEST_SPLIT)
 
 # ---------- helpers ----------
 def _read_csv(p: Path) -> pd.DataFrame:
@@ -36,9 +37,9 @@ def list_stems() -> List[str]:
     """
     stems = []
     
-    # Check new format first
+    # Check new format: model_dataset/handover-csv/hands/
     if HANDS_DIR.exists():
-        print(f"Scanning for hands files in: {HANDS_DIR}")
+        print(f"Scanning for hands files in: {HANDS_DIR.resolve()}")
         found_files = list(HANDS_DIR.glob("*_video_hands.csv"))
         print(f"  Found {len(found_files)} hands files: {[f.name for f in found_files]}")
         for p in found_files:
@@ -46,12 +47,14 @@ def list_stems() -> List[str]:
             stem = p.stem.replace("_hands", "")
             stems.append(stem)
     else:
-        print(f"  WARNING: HANDS_DIR does not exist: {HANDS_DIR}")
-        print(f"  Directory will be created automatically. Please add your data files there.")
+        print(f"  WARNING: HANDS_DIR does not exist: {HANDS_DIR.resolve()}")
+        print(f"  Expected location: {HANDS_DIR.resolve()}")
+        print(f"  Data files should be in: model_dataset/handover-csv/hands/")
     
-    # Fallback to old format if new format not found
+    # Fallback to old format ONLY if new format not found (for backward compatibility)
     if not stems and WORLD_DIR.exists():
-        print(f"  Falling back to old format, scanning: {WORLD_DIR}")
+        print(f"  ⚠️  No new format files found, falling back to old format")
+        print(f"  Scanning old location: {WORLD_DIR.resolve()}")
         found_files = list(WORLD_DIR.glob("*_world.csv"))
         print(f"  Found {len(found_files)} world files: {[f.name for f in found_files]}")
         for p in found_files:
@@ -433,9 +436,14 @@ class HandoverDataset(Dataset):
 # ---------- splits / loaders ----------
 def split_stems(stems_to_use: Optional[List[str]] = None):
     """
-    Deterministic split by stem (video-level).
+    Deterministic split by stem (video-level) into train/validation/test sets.
     If stems_to_use is provided, only uses those stems.
-    With only 2 stems: puts both in training (no validation/test split).
+    
+    Split strategy:
+    - 1 stem: All in training (no val/test)
+    - 2 stems: 1 train, 1 val (no test)
+    - 3 stems: 1 train, 1 val, 1 test
+    - 4+ stems: Uses TRAIN_SPLIT/VAL_SPLIT/TEST_SPLIT ratios
     """
     if stems_to_use is None:
         stems = list_stems()
@@ -450,15 +458,42 @@ def split_stems(stems_to_use: Optional[List[str]] = None):
     if len(stems) == 0:
         return [], [], []
     
-    random.seed(1337); random.shuffle(stems)
+    # Deterministic shuffle with fixed seed
+    random.seed(1337)
+    stems_shuffled = stems.copy()
+    random.shuffle(stems_shuffled)
     
-    # With only 2 stems, put both in training
-    if len(stems) <= 2:
-        return stems, [], []  # All training, no val/test
+    n = len(stems_shuffled)
     
-    # Otherwise use 70/15/15 split
-    n = len(stems); n_tr = int(0.7*n); n_val = int(0.15*n)
-    return stems[:n_tr], stems[n_tr:n_tr+n_val], stems[n_tr+n_val:]
+    # Handle small datasets
+    if n == 1:
+        print(f"  Only 1 stem available: using all for training")
+        return stems_shuffled, [], []
+    elif n == 2:
+        print(f"  Only 2 stems available: 1 train, 1 validation")
+        return stems_shuffled[:1], stems_shuffled[1:2], []
+    elif n == 3:
+        print(f"  Only 3 stems available: 1 train, 1 validation, 1 test")
+        return stems_shuffled[:1], stems_shuffled[1:2], stems_shuffled[2:3]
+    else:
+        # Use configured split ratios
+        n_train = max(1, int(n * TRAIN_SPLIT))
+        n_val = max(1, int(n * VAL_SPLIT))
+        n_test = n - n_train - n_val  # Remaining goes to test
+        
+        # Ensure at least 1 in each split if possible
+        if n_test == 0 and n > 2:
+            n_train -= 1
+            n_test = 1
+        
+        train_stems = stems_shuffled[:n_train]
+        val_stems = stems_shuffled[n_train:n_train + n_val]
+        test_stems = stems_shuffled[n_train + n_val:]
+        
+        print(f"  Split {n} stems: {n_train} train ({TRAIN_SPLIT*100:.0f}%), "
+              f"{n_val} val ({VAL_SPLIT*100:.0f}%), {len(test_stems)} test ({len(test_stems)/n*100:.0f}%)")
+        
+        return train_stems, val_stems, test_stems
 
 def build_loaders(stems_to_use: Optional[List[str]] = None):
     """
@@ -513,14 +548,27 @@ def build_loaders(stems_to_use: Optional[List[str]] = None):
         error_msg = "\n" + "="*60 + "\n"
         error_msg += "ERROR: Train dataset is empty!\n"
         error_msg += "="*60 + "\n"
-        error_msg += f"Possible causes:\n"
-        error_msg += f"1. No data files found in expected locations:\n"
-        error_msg += f"   - New format: {HANDS_DIR}/*_video_hands.csv\n"
-        error_msg += f"   - Old format: {WORLD_DIR}/*_world.csv\n"
-        error_msg += f"2. Requested stems not found: {stems_to_use}\n"
-        error_msg += f"   Available stems: {available_stems}\n"
-        error_msg += f"3. Files exist but have insufficient frames (need at least {SEQ_LEN + FUTURE_FRAMES} frames)\n"
-        error_msg += f"4. Files exist but failed to load (check error messages above)\n"
+        error_msg += f"\n📁 Expected data locations:\n"
+        error_msg += f"   Hands files: {HANDS_DIR.resolve()}\n"
+        error_msg += f"   Box files:   {BOX_DIR.resolve()}\n"
+        error_msg += f"\n📋 File naming format:\n"
+        error_msg += f"   Hands: {{number}}_video_hands.csv (e.g., 1_video_hands.csv, 2_video_hands.csv)\n"
+        error_msg += f"   Box:   {{number}}_video_box.csv (e.g., 1_video_box.csv, 2_video_box.csv)\n"
+        error_msg += f"\n🔍 Current status:\n"
+        error_msg += f"   HANDS_DIR exists: {HANDS_DIR.exists()}\n"
+        error_msg += f"   BOX_DIR exists:   {BOX_DIR.exists()}\n"
+        if HANDS_DIR.exists():
+            hands_files = list(HANDS_DIR.glob("*.csv"))
+            error_msg += f"   Files in HANDS_DIR: {len(hands_files)} ({[f.name for f in hands_files[:5]]}...)\n"
+        if BOX_DIR.exists():
+            box_files = list(BOX_DIR.glob("*.csv"))
+            error_msg += f"   Files in BOX_DIR:   {len(box_files)} ({[f.name for f in box_files[:5]]}...)\n"
+        error_msg += f"\n💡 Possible causes:\n"
+        error_msg += f"   1. Data files not found in expected locations (data may not be on this machine)\n"
+        error_msg += f"   2. Requested stems not found: {stems_to_use}\n"
+        error_msg += f"      Available stems: {available_stems}\n"
+        error_msg += f"   3. Files exist but have insufficient frames (need at least {SEQ_LEN + FUTURE_FRAMES} frames)\n"
+        error_msg += f"   4. Files exist but failed to load (check error messages above)\n"
         error_msg += "="*60 + "\n"
         raise RuntimeError(error_msg)
     

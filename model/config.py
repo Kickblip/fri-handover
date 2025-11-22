@@ -5,12 +5,11 @@ All outputs live under dataset/model_output/ as requested.
 from pathlib import Path
 
 # ---------------- Input roots (match your repo layout) ---------------- 
+# Data is located in: model_dataset/handover-csv/hands/ and model_dataset/handover-csv/box/
 MODEL_DATASET_ROOT = Path("model_dataset") / "handover-csv"
-HANDS_DIR = MODEL_DATASET_ROOT / "hands"      # {number}_video_hands.csv
-BOX_DIR   = MODEL_DATASET_ROOT / "box"        # {number}_video_box.csv
-# Create directories if they don't exist (so user knows where to put files)
-HANDS_DIR.mkdir(parents=True, exist_ok=True)
-BOX_DIR.mkdir(parents=True, exist_ok=True)
+HANDS_DIR = MODEL_DATASET_ROOT / "hands"      # {number}_video_hands.csv files go here
+BOX_DIR   = MODEL_DATASET_ROOT / "box"        # {number}_video_box.csv files go here
+# Note: Directories are NOT created automatically - data must already exist in these locations
 
 # Legacy paths (kept for backward compatibility if needed)
 ROOT = Path("dataset")
@@ -47,3 +46,9 @@ DROPOUT  = 0.10
 LR                  = 2e-4
 MAX_EPOCHS          = 40
 EARLY_STOP_PATIENCE = 5       # stop if val loss stalls
+
+# ---------------- Data Splitting ---------------- 
+TRAIN_SPLIT = 0.7    # 70% for training
+VAL_SPLIT   = 0.15   # 15% for validation
+TEST_SPLIT  = 0.15   # 15% for testing
+# Note: For small datasets (< 3 stems), will use minimum 1 stem per split when possible
