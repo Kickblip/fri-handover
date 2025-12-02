@@ -36,7 +36,7 @@ BATCH_SIZE = 64
 FUTURE_FRAMES = 20    # number of frames to predict ahead
 
 # ---------------- Model size ---------------- 
-D_MODEL  = 256
+D_MODEL  = 512
 N_HEAD   = 8
 N_LAYERS = 4
 FFN_DIM  = 512
