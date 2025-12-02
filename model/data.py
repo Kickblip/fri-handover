@@ -244,7 +244,7 @@ def load_box_coordinates(stem: str, frames: List[int]) -> np.ndarray:
     """
     Load AprilTag box coordinates from {stem}_box.csv.
     
-    Expected CSV format: frame_idx, tag_id, coord_frame, v0_x, v0_y, v0_z, v1_x, v1_y, v1_z, ...
+    Expected CSV format: frame_idx, tag_id, coord_frame, v0_x, v0_y, v0_z, v1_x, v1_y, v1_z, etc...
     Returns only the vertex coordinates (v*_x, v*_y, v*_z columns).
     
     Returns:
