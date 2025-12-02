@@ -40,15 +40,15 @@ def load_checkpoint(path: Path, device: str):
 @torch.no_grad()
 def predict_future_frames(stem: str, device=None):
     """
-    Predict future frames recursively:
-    - Uses frames 0-9 as initial input
-    - Predicts next 20 frames (10-29)
-    - Uses last 10 of those predictions (20-29) to predict next 20 (30-49)
-    - Continues recursively using predictions as input
+    Predict future frames using independent sliding windows:
+    - Uses frames 0-9 to predict frames 10-29
+    - Uses frames 10-19 to predict frames 20-39
+    - Uses frames 20-29 to predict frames 30-49
+    - Each prediction is independent (uses only original input data, not previous predictions)
     
     Returns:
-        predictions: List of [future_frames, out_dim] arrays, one per prediction step
-        frames: List of frame indices (last frame of input window, prediction starts at frame+1)
+        predictions: List of [future_frames, out_dim] arrays, one per valid position
+        frames: List of frame indices where predictions were made (last frame of input window)
     """
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     X_input, frames_input = load_features(stem)  # [T, D_in]
@@ -60,41 +60,14 @@ def predict_future_frames(stem: str, device=None):
     predictions = []
     pred_frames = []
     
-    # Start with first SEQ_LEN frames (0-9) from input
-    current_input = X_input[:L].copy()  # [L, D_in] - frames 0-9
-    # Track the actual frame numbers - start with frame indices for first L frames
-    current_frame_numbers = frames_input[:L].copy()  # Frame numbers corresponding to current_input
-    
-    # Continue predicting recursively
-    max_predictions = 100  # Safety limit to prevent infinite loops
-    
-    for step in range(max_predictions):
-        # Prepare input: take last SEQ_LEN frames
-        if current_input.shape[0] < L:
-            break
-            
-        # Get the last L frames and their corresponding frame numbers
-        input_window = current_input[-L:]  # [L, D_in]
-        input_frame_end = current_frame_numbers[-1]  # Last frame number in input window
-        
-        chunk = torch.from_numpy(input_window).unsqueeze(0).float().to(device)  # [1, L, D_in]
+    # Predict for all valid positions using independent sliding windows
+    # Each window uses SEQ_LEN frames and predicts FUTURE_FRAMES ahead
+    for end in range(L-1, T - FUTURE_FRAMES):
+        start = end - (L-1)
+        chunk = torch.from_numpy(X_input[start:end+1]).unsqueeze(0).float().to(device)  # [1, L, D_in]
         pred = model(chunk)  # [1, future_frames, D_out]
-        pred_np = pred.cpu().numpy()[0]  # [future_frames, D_out]
-        
-        predictions.append(pred_np)
-        # Store the last frame of the input window (prediction starts at frame+1)
-        pred_frames.append(input_frame_end)
-        
-        # Append predictions to current_input for next iteration
-        # Create frame numbers for predicted frames (starting from input_frame_end + 1)
-        pred_frame_numbers = np.arange(input_frame_end + 1, input_frame_end + 1 + FUTURE_FRAMES)
-        current_input = np.vstack([current_input, pred_np])  # Append predicted frames
-        current_frame_numbers = np.concatenate([current_frame_numbers, pred_frame_numbers])  # Append frame numbers
-        
-        # Keep only recent frames to avoid memory issues (keep last 2*L frames)
-        if current_input.shape[0] > 2 * L:
-            current_input = current_input[-2*L:]
-            current_frame_numbers = current_frame_numbers[-2*L:]
+        predictions.append(pred.cpu().numpy()[0])  # [future_frames, D_out]
+        pred_frames.append(frames_input[end])
     
     return predictions, pred_frames
 
