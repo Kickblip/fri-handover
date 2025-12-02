@@ -40,11 +40,12 @@ def load_checkpoint(path: Path, device: str):
 @torch.no_grad()
 def predict_future_frames(stem: str, device=None):
     """
-    Predict future frames using independent sliding windows:
-    - Uses frames 0-9 to predict frames 10-29 *
-    - Uses frames 10-19 to predict frames 20-39
+    Predict future frames using non-overlapping windows that advance by FUTURE_FRAMES:
+    - Uses frames 0-9 to predict frames 10-29
     - Uses frames 20-29 to predict frames 30-49
+    - Uses frames 40-49 to predict frames 50-69
     - Each prediction is independent (uses only original input data, not previous predictions)
+    - Windows advance by FUTURE_FRAMES (20) each time
     
     Returns:
         predictions: List of [future_frames, out_dim] arrays, one per valid position
@@ -60,10 +61,15 @@ def predict_future_frames(stem: str, device=None):
     predictions = []
     pred_frames = []
     
-    # Predict for all valid positions using independent sliding windows
-    # Each window uses SEQ_LEN frames and predicts FUTURE_FRAMES ahead
-    for end in range(L-1, T - FUTURE_FRAMES):
-        start = end - (L-1)
+    # Predict using non-overlapping windows that advance by FUTURE_FRAMES each time
+    # Window 0: frames 0-9 → predict 10-29
+    # Window 1: frames 20-29 → predict 30-49
+    # Window 2: frames 40-49 → predict 50-69
+    # etc.
+    for start in range(0, T - FUTURE_FRAMES, FUTURE_FRAMES):
+        end = start + L - 1
+        if end >= T:
+            break
         chunk = torch.from_numpy(X_input[start:end+1]).unsqueeze(0).float().to(device)  # [1, L, D_in]
         pred = model(chunk)  # [1, future_frames, D_out]
         predictions.append(pred.cpu().numpy()[0])  # [future_frames, D_out]
