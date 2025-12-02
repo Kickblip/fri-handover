@@ -41,7 +41,7 @@ def load_checkpoint(path: Path, device: str):
 def predict_future_frames(stem: str, device=None):
     """
     Predict future frames using non-overlapping windows that advance by FUTURE_FRAMES:
-    - Uses frames 0-9 to predict frames 10-29
+    - Uses frames 0-9 to predict frames 10-29 *
     - Uses frames 20-29 to predict frames 30-49
     - Uses frames 40-49 to predict frames 50-69
     - Each prediction is independent (uses only original input data, not previous predictions)
