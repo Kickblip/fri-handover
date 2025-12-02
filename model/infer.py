@@ -40,11 +40,15 @@ def load_checkpoint(path: Path, device: str):
 @torch.no_grad()
 def predict_future_frames(stem: str, device=None):
     """
-    Predict future frames for all valid positions in the sequence.
+    Predict future frames recursively:
+    - Uses frames 0-9 as initial input
+    - Predicts next 20 frames (10-29)
+    - Uses last 10 of those predictions (20-29) to predict next 20 (30-49)
+    - Continues recursively using predictions as input
     
     Returns:
-        predictions: List of [future_frames, out_dim] arrays, one per valid position
-        frames: List of frame indices where predictions were made
+        predictions: List of [future_frames, out_dim] arrays, one per prediction step
+        frames: List of frame indices (last frame of input window, prediction starts at frame+1)
     """
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     X_input, frames_input = load_features(stem)  # [T, D_in]
@@ -56,13 +60,41 @@ def predict_future_frames(stem: str, device=None):
     predictions = []
     pred_frames = []
     
-    # Predict for all valid positions
-    for end in range(L-1, T - FUTURE_FRAMES):
-        start = end - (L-1)
-        chunk = torch.from_numpy(X_input[start:end+1]).unsqueeze(0).float().to(device)  # [1, L, D_in]
+    # Start with first SEQ_LEN frames (0-9) from input
+    current_input = X_input[:L].copy()  # [L, D_in] - frames 0-9
+    # Track the actual frame numbers - start with frame indices for first L frames
+    current_frame_numbers = frames_input[:L].copy()  # Frame numbers corresponding to current_input
+    
+    # Continue predicting recursively
+    max_predictions = 100  # Safety limit to prevent infinite loops
+    
+    for step in range(max_predictions):
+        # Prepare input: take last SEQ_LEN frames
+        if current_input.shape[0] < L:
+            break
+            
+        # Get the last L frames and their corresponding frame numbers
+        input_window = current_input[-L:]  # [L, D_in]
+        input_frame_end = current_frame_numbers[-1]  # Last frame number in input window
+        
+        chunk = torch.from_numpy(input_window).unsqueeze(0).float().to(device)  # [1, L, D_in]
         pred = model(chunk)  # [1, future_frames, D_out]
-        predictions.append(pred.cpu().numpy()[0])  # [future_frames, D_out]
-        pred_frames.append(frames_input[end])
+        pred_np = pred.cpu().numpy()[0]  # [future_frames, D_out]
+        
+        predictions.append(pred_np)
+        # Store the last frame of the input window (prediction starts at frame+1)
+        pred_frames.append(input_frame_end)
+        
+        # Append predictions to current_input for next iteration
+        # Create frame numbers for predicted frames (starting from input_frame_end + 1)
+        pred_frame_numbers = np.arange(input_frame_end + 1, input_frame_end + 1 + FUTURE_FRAMES)
+        current_input = np.vstack([current_input, pred_np])  # Append predicted frames
+        current_frame_numbers = np.concatenate([current_frame_numbers, pred_frame_numbers])  # Append frame numbers
+        
+        # Keep only recent frames to avoid memory issues (keep last 2*L frames)
+        if current_input.shape[0] > 2 * L:
+            current_input = current_input[-2*L:]
+            current_frame_numbers = current_frame_numbers[-2*L:]
     
     return predictions, pred_frames
 
@@ -201,13 +233,17 @@ def create_video(predictions: list, frames: list, stem: str, fps: int = 30):
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     writer = cv2.VideoWriter(str(video_path), fourcc, video_fps, (width, height))
     
-    # Create a mapping from prediction frame to predictions
-    # Each prediction is for a specific frame and predicts future_frames ahead
-    pred_dict = {}
-    for pred, frame in zip(predictions, frames):
+    # Create a mapping from frame index to predicted hand coordinates
+    # Each prediction step predicts FUTURE_FRAMES frames starting from (frame + 1)
+    # pred_frame is the last frame of the input window, prediction starts at pred_frame + 1
+    frame_to_prediction = {}  # Maps frame_idx -> [n_landmarks, 3]
+    for pred, pred_frame_end in zip(predictions, frames):
         # pred: [future_frames, out_dim] -> reshape to [future_frames, n_landmarks, 3]
         pred_3d = pred.reshape(future_frames, n_landmarks, 3)
-        pred_dict[frame] = pred_3d
+        # This prediction covers frames from (pred_frame_end + 1) to (pred_frame_end + FUTURE_FRAMES)
+        for i in range(future_frames):
+            frame_idx = pred_frame_end + 1 + i
+            frame_to_prediction[frame_idx] = pred_3d[i]  # [n_landmarks, 3]
     
     current_frame_idx = 0
     
@@ -233,23 +269,9 @@ def create_video(predictions: list, frames: list, stem: str, fps: int = 30):
                             cv2.circle(frame_img, (u, v), 4, (0, 255, 0), -1, lineType=cv2.LINE_AA)
             
             # Draw predicted receiving hand (hand_1) in RED
-            # Use the most recent prediction that covers this frame
-            best_pred_frame = None
-            best_future_idx = None
-            
-            for pred_frame, pred_3d in pred_dict.items():
-                # Check if current_frame_idx is within the future frames of this prediction
-                if pred_frame < current_frame_idx <= pred_frame + future_frames:
-                    future_idx = current_frame_idx - pred_frame - 1  # Which future frame this is
-                    if 0 <= future_idx < future_frames:
-                        # Use the most recent prediction (largest pred_frame that still covers this frame)
-                        if best_pred_frame is None or pred_frame > best_pred_frame:
-                            best_pred_frame = pred_frame
-                            best_future_idx = future_idx
-            
-            # Draw the best prediction if found
-            if best_pred_frame is not None:
-                predicted_hand = pred_dict[best_pred_frame][best_future_idx]  # [21, 3]
+            # Look up prediction for this frame
+            if current_frame_idx in frame_to_prediction:
+                predicted_hand = frame_to_prediction[current_frame_idx]  # [21, 3]
                 for landmark in predicted_hand:
                     X, Y, Z = landmark[0], landmark[1], landmark[2]
                     if np.isnan(X) or np.isnan(Y) or np.isnan(Z):
