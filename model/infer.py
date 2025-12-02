@@ -41,7 +41,7 @@ def load_checkpoint(path: Path, device: str):
 def predict_future_frames(stem: str, device=None):
     """
     Predict future frames using independent sliding windows:
-    - Uses frames 0-9 to predict frames 10-29
+    - Uses frames 0-9 to predict frames 10-29 *
     - Uses frames 10-19 to predict frames 20-39
     - Uses frames 20-29 to predict frames 30-49
     - Each prediction is independent (uses only original input data, not previous predictions)
