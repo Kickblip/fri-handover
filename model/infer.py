@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import torch
 import cv2
+from pyk4a import PyK4APlayback, CalibrationType
 from .config import CKPT_PATH, PRED_DIR, VIDEO_DIR, SEQ_LEN, FUTURE_FRAMES, HANDS_DIR, WORLD_DIR, ROOT
 from .data import load_features, load_receiving_hand_world, _read_csv, _pick_col
 from .model import HandoverTransformer
@@ -103,12 +104,51 @@ def find_original_video(stem: str) -> Path:
         f"and {world_video}"
     )
 
-def project_to_image(X: float, Y: float, Z: float, width: int, height: int) -> tuple[int, int] | None:
-    """Project 3D world coordinates to 2D image coordinates using camera intrinsics."""
-    # Camera intrinsics - adjust if your setup differs
-    fx, fy = 600, 600
-    cx, cy = width // 2, height // 2  # Center for video
+def get_camera_intrinsics(video_path: Path) -> tuple[float, float, float, float]:
+    """
+    Get camera intrinsics from Kinect MKV file or use defaults.
+    Returns: (fx, fy, cx, cy)
+    """
+    # Try to load from Kinect MKV file
+    if video_path.suffix.lower() == '.mkv':
+        try:
+            playback = PyK4APlayback(str(video_path))
+            playback.open()
+            calib = playback.calibration
+            K = calib.get_camera_matrix(CalibrationType.COLOR)
+            playback.close()
+            
+            fx, fy = float(K[0, 0]), float(K[1, 1])
+            cx, cy = float(K[0, 2]), float(K[1, 2])
+            print(f"Loaded camera intrinsics from Kinect MKV: fx={fx:.1f}, fy={fy:.1f}, cx={cx:.1f}, cy={cy:.1f}")
+            return fx, fy, cx, cy
+        except Exception as e:
+            print(f"Warning: Could not load calibration from MKV file: {e}")
+            print("Using default Kinect Azure intrinsics for 1080p")
     
+    # Default Kinect Azure intrinsics for 1080p (RES_1080P)
+    # Typical values for Kinect Azure at 1080p:
+    # fx ≈ 979.0, fy ≈ 979.0, cx ≈ 960.0, cy ≈ 540.0
+    # But we'll use the video dimensions to compute cx, cy
+    cap = cv2.VideoCapture(str(video_path))
+    if cap.isOpened():
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        cap.release()
+        
+        # Kinect Azure 1080p typical intrinsics
+        fx = fy = 979.0  # Approximate focal length for 1080p
+        cx = width / 2.0
+        cy = height / 2.0
+        print(f"Using default Kinect Azure intrinsics: fx={fx:.1f}, fy={fy:.1f}, cx={cx:.1f}, cy={cy:.1f}")
+        return fx, fy, cx, cy
+    
+    # Fallback to old hardcoded values
+    print("Warning: Using fallback intrinsics (may be inaccurate)")
+    return 600.0, 600.0, 960.0, 540.0
+
+def project_to_image(X: float, Y: float, Z: float, fx: float, fy: float, cx: float, cy: float) -> tuple[int, int] | None:
+    """Project 3D world coordinates to 2D image coordinates using camera intrinsics."""
     if Z <= 0:
         return None
     
@@ -141,6 +181,10 @@ def create_video(predictions: list, frames: list, stem: str, fps: int = 30):
     video_fps = cap.get(cv2.CAP_PROP_FPS) or fps
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    
+    # Get camera intrinsics from video file
+    print(f"Loading camera intrinsics...")
+    fx, fy, cx, cy = get_camera_intrinsics(original_video_path)
     
     # Load giving hand (hand_0) world coordinates
     print(f"Loading giving hand (hand_0) coordinates...")
@@ -182,7 +226,7 @@ def create_video(predictions: list, frames: list, stem: str, fps: int = 30):
                     X, Y, Z = landmark[0], landmark[1], landmark[2]
                     if np.isnan(X) or np.isnan(Y) or np.isnan(Z):
                         continue
-                    uv = project_to_image(X, Y, Z, width, height)
+                    uv = project_to_image(X, Y, Z, fx, fy, cx, cy)
                     if uv is not None:
                         u, v = uv
                         if 0 <= u < width and 0 <= v < height:
@@ -210,7 +254,7 @@ def create_video(predictions: list, frames: list, stem: str, fps: int = 30):
                     X, Y, Z = landmark[0], landmark[1], landmark[2]
                     if np.isnan(X) or np.isnan(Y) or np.isnan(Z):
                         continue
-                    uv = project_to_image(X, Y, Z, width, height)
+                    uv = project_to_image(X, Y, Z, fx, fy, cx, cy)
                     if uv is not None:
                         u, v = uv
                         if 0 <= u < width and 0 <= v < height:
