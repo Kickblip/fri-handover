@@ -80,21 +80,21 @@ def predict_future_frames(stem: str, device=None):
 
 def load_giving_hand_world(stem: str) -> tuple[np.ndarray, list[int]]:
     """
-    Load giving hand (hand_0) world coordinates.
+    Load giving hand (hand_1) world coordinates.
     Returns world coordinates for all 21 landmarks (63 features: x,y,z for each).
-    Uses the same consistency fix as load_both_hands_world to ensure hand0 stays consistent.
+    Uses the same consistency fix as load_both_hands_world to ensure hand1 stays consistent.
     
-    Expected CSV format: frame_idx, h0_lm0_x, h0_lm0_y, h0_lm0_z, h0_lm1_x, ...
+    Expected CSV format: frame_idx, h1_lm0_x, h1_lm0_y, h1_lm0_z, h1_lm1_x, ...
     """
-    # Load both hands with consistency fix, then extract only hand0
-    # This ensures hand0 is consistently labeled throughout the video
+    # Load both hands with consistency fix, then extract only hand1 (giving hand)
+    # This ensures hand1 is consistently labeled throughout the video
     from .data import load_both_hands_world
     X_both, frames = load_both_hands_world(stem)
     
-    # Extract hand0 (first half: indices 0-62)
-    X0 = X_both[:, 0:63]  # [T, 63]
+    # Extract hand1 (second half: indices 63-125) - this is the giving hand
+    X1 = X_both[:, 63:126]  # [T, 63]
     
-    return X0, frames
+    return X1, frames
 
 def find_original_video(stem: str) -> Path:
     """Find the original video file by stem name."""
@@ -172,8 +172,8 @@ def project_to_image(X: float, Y: float, Z: float, fx: float, fy: float, cx: flo
 def create_video(predictions: list, frames: list, stem: str, fps: int = 30):
     """
     Create a video visualization with:
-    - Predicted receiving hand (hand_1) 21 points in RED
-    - Actual receiving hand (hand_1) 21 points in GREEN from original video
+    - Predicted receiving hand (hand_0) 21 points in RED
+    - Actual receiving hand (hand_0) 21 points in GREEN from original video
     """
     if not predictions:
         print("No predictions to visualize")
@@ -198,8 +198,8 @@ def create_video(predictions: list, frames: list, stem: str, fps: int = 30):
     print(f"Loading camera intrinsics...")
     fx, fy, cx, cy = get_camera_intrinsics(original_video_path)
     
-    # Load actual receiving hand (hand_1) world coordinates
-    print(f"Loading actual receiving hand (hand_1) coordinates...")
+    # Load actual receiving hand (hand_0) world coordinates
+    print(f"Loading actual receiving hand (hand_0) coordinates...")
     from .data import load_receiving_hand_world
     receiving_hand_coords, receiving_frames = load_receiving_hand_world(stem)
     # Reshape to [T, 21, 3]
@@ -249,7 +249,7 @@ def create_video(predictions: list, frames: list, stem: str, fps: int = 30):
                         if 0 <= u < width and 0 <= v < height:
                             cv2.circle(frame_img, (u, v), 4, (0, 255, 0), -1, lineType=cv2.LINE_AA)
             
-            # Draw predicted receiving hand (hand_1) in RED
+            # Draw predicted receiving hand (hand_0) in RED
             # Look up prediction for this frame
             if current_frame_idx in frame_to_prediction:
                 predicted_hand = frame_to_prediction[current_frame_idx]  # [21, 3]

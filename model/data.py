@@ -350,27 +350,27 @@ def load_features(stem: str) -> Tuple[np.ndarray, List[int]]:
 # ---------- receiving hand (target) loader ----------
 def load_receiving_hand_world(stem: str) -> Tuple[np.ndarray, List[int]]:
     """
-    Load receiving hand (hand_1) world coordinates as targets.
+    Load receiving hand (hand_0) world coordinates as targets.
     Returns world coordinates for all 21 landmarks (63 features: x,y,z for each).
-    Uses the same consistency fix as load_both_hands_world to ensure hand1 stays consistent.
+    Uses the same consistency fix as load_both_hands_world to ensure hand0 stays consistent.
     
-    Expected CSV format: frame_idx, h1_lm0_x, h1_lm0_y, h1_lm0_z, h1_lm1_x, ...
+    Expected CSV format: frame_idx, h0_lm0_x, h0_lm0_y, h0_lm0_z, h0_lm1_x, ...
     
     Note: load_both_hands_world returns [hand_0 || hand_1], so:
-    - Indices 0-62: hand_0 (giving hand)
-    - Indices 63-125: hand_1 (receiving hand)
+    - Indices 0-62: hand_0 (receiving hand)
+    - Indices 63-125: hand_1 (giving hand)
     """
-    # Load both hands with consistency fix, then extract only hand1 (receiving hand)
-    # This ensures hand1 is consistently labeled throughout the video
+    # Load both hands with consistency fix, then extract only hand0 (receiving hand)
+    # This ensures hand0 is consistently labeled throughout the video
     X_both, frames = load_both_hands_world(stem)
     
     # load_both_hands_world returns [hand_0 || hand_1] = [X0 || X1]
-    # So: indices 0-62 = hand_0 (giving hand), indices 63-125 = hand_1 (receiving hand)
+    # So: indices 0-62 = hand_0 (receiving hand), indices 63-125 = hand_1 (giving hand)
     
-    # Extract hand1 (second half: indices 63-125) - this is the receiving hand
-    X1 = X_both[:, 63:126]  # [T, 63] - receiving hand (hand_1)
+    # Extract hand0 (first half: indices 0-63) - this is the receiving hand
+    X0 = X_both[:, 0:63]  # [T, 63] - receiving hand (hand_0)
     
-    return X1, frames
+    return X0, frames
 
 # ---------- sequences / datasets ----------
 def make_sequences_with_targets(X_input: np.ndarray, X_target: np.ndarray, 
