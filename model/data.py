@@ -365,14 +365,10 @@ def load_receiving_hand_world(stem: str) -> Tuple[np.ndarray, List[int]]:
     X_both, frames = load_both_hands_world(stem)
     
     # load_both_hands_world returns [hand_0 || hand_1] = [X0 || X1]
-    # So: indices 0-62 = hand_0, indices 63-125 = hand_1
-    # If the model is predicting giving hand instead of receiving hand,
-    # it means we're extracting the wrong hand. Let's swap to extract hand0 (indices 0-62)
-    # which should be the receiving hand if the model is currently predicting giving hand
+    # So: indices 0-62 = hand_0 (giving hand), indices 63-125 = hand_1 (receiving hand)
     
-    # Extract hand0 (first half: indices 0-62) - this should be the receiving hand
-    # if the model was incorrectly predicting giving hand
-    X1 = X_both[:, 0:63]  # [T, 63] - receiving hand (was hand_0, now extracting as receiving)
+    # Extract hand1 (second half: indices 63-125) - this is the receiving hand
+    X1 = X_both[:, 63:126]  # [T, 63] - receiving hand (hand_1)
     
     return X1, frames
 

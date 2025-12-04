@@ -7,6 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 import argparse
 import re
+from typing import Any
 import numpy as np
 import pandas as pd
 import torch
@@ -41,7 +42,7 @@ def load_checkpoint(path: Path, device: str):
 def predict_future_frames(stem: str, device=None):
     """
     Predict future frames using non-overlapping windows that advance by FUTURE_FRAMES:
-    - Uses frames 0-9 to predict frames 10-29 *
+    - Uses frames 0-9 to predict frames 10-29 
     - Uses frames 20-29 to predict frames 30-49
     - Uses frames 40-49 to predict frames 50-69
     - Each prediction is independent (uses only original input data, not previous predictions)
@@ -65,7 +66,7 @@ def predict_future_frames(stem: str, device=None):
     # Window 0: frames 0-9 → predict 10-29
     # Window 1: frames 20-29 → predict 30-49
     # Window 2: frames 40-49 → predict 50-69
-    # etc.
+    # etc.v
     for start in range(0, T - FUTURE_FRAMES, FUTURE_FRAMES):
         end = start + L - 1
         if end >= T:
@@ -291,7 +292,7 @@ def main():
             f.write(f",lm_{lm_idx}_x,lm_{lm_idx}_y,lm_{lm_idx}_z")
         f.write("\n")
         
-        for pred, frame in zip(predictions, frames):
+        for pred, frame in zip[tuple](predictions, frames):
             for f_idx in range(future_frames):
                 f.write(f"{int(frame)},{f_idx}")
                 for lm_idx in range(n_landmarks):
