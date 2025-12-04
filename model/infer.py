@@ -173,7 +173,7 @@ def create_video(predictions: list, frames: list, stem: str, fps: int = 30):
     """
     Create a video visualization with:
     - Predicted receiving hand (hand_1) 21 points in RED
-    - Giving hand (hand_0) 21 points in GREEN on the original video
+    - Actual receiving hand (hand_1) 21 points in GREEN from original video
     """
     if not predictions:
         print("No predictions to visualize")
@@ -198,14 +198,15 @@ def create_video(predictions: list, frames: list, stem: str, fps: int = 30):
     print(f"Loading camera intrinsics...")
     fx, fy, cx, cy = get_camera_intrinsics(original_video_path)
     
-    # Load giving hand (hand_0) world coordinates
-    print(f"Loading giving hand (hand_0) coordinates...")
-    giving_hand_coords, giving_frames = load_giving_hand_world(stem)
+    # Load actual receiving hand (hand_1) world coordinates
+    print(f"Loading actual receiving hand (hand_1) coordinates...")
+    from .data import load_receiving_hand_world
+    receiving_hand_coords, receiving_frames = load_receiving_hand_world(stem)
     # Reshape to [T, 21, 3]
-    giving_hand_coords = giving_hand_coords.reshape(len(giving_frames), n_landmarks, 3)
+    receiving_hand_coords = receiving_hand_coords.reshape(len(receiving_frames), n_landmarks, 3)
     
-    # Create a mapping from frame index to giving hand coordinates
-    giving_hand_dict = {f: giving_hand_coords[i] for i, f in enumerate(giving_frames)}
+    # Create a mapping from frame index to actual receiving hand coordinates
+    receiving_hand_dict = {f: receiving_hand_coords[i] for i, f in enumerate(receiving_frames)}
     
     # Create video writer
     video_path = VIDEO_DIR / f"{stem}_predicted_future.mp4"
@@ -235,10 +236,10 @@ def create_video(predictions: list, frames: list, stem: str, fps: int = 30):
             
             current_frame_idx += 1
             
-            # Draw giving hand (hand_0) in GREEN from original video
-            if current_frame_idx in giving_hand_dict:
-                giving_hand = giving_hand_dict[current_frame_idx]  # [21, 3]
-                for landmark in giving_hand:
+            # Draw actual receiving hand (hand_1) in GREEN from original video
+            if current_frame_idx in receiving_hand_dict:
+                actual_hand = receiving_hand_dict[current_frame_idx]  # [21, 3]
+                for landmark in actual_hand:
                     X, Y, Z = landmark[0], landmark[1], landmark[2]
                     if np.isnan(X) or np.isnan(Y) or np.isnan(Z):
                         continue
@@ -292,7 +293,7 @@ def main():
             f.write(f",lm_{lm_idx}_x,lm_{lm_idx}_y,lm_{lm_idx}_z")
         f.write("\n")
         
-        for pred, frame in zip[tuple](predictions, frames):
+        for pred, frame in zip(predictions, frames):
             for f_idx in range(future_frames):
                 f.write(f"{int(frame)},{f_idx}")
                 for lm_idx in range(n_landmarks):
