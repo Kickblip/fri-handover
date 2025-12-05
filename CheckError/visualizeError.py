@@ -391,7 +391,7 @@ def generate_html(results, output_file):
 def main():
     # File paths
     script_dir = Path(__file__).parent
-    pred_file = script_dir / "40_video_future_predictions (1).csv"
+    pred_file = script_dir / "40_video_future_predictions.csv"
     actual_file = script_dir / "40_video_hands.csv"
     output_file = script_dir / "prediction_analysis.html"
     
