@@ -30,19 +30,19 @@ def load_predictions(pred_file):
     return predictions
 
 def load_actuals(actual_file):
-    """Load actual hand_1 coordinates from CSV."""
+    """Load actual receiving hand (hand_0) coordinates from CSV."""
     df = pd.read_csv(actual_file)
     actuals = {}
     
     for _, row in df.iterrows():
         frame = int(row['frame_idx'])
         
-        # Extract hand_1 (h1) landmarks
+        # Extract hand_0 (h0) landmarks - receiving hand
         coords = []
         for lm in range(21):
-            x_col = f'h1_lm{lm}_x'
-            y_col = f'h1_lm{lm}_y'
-            z_col = f'h1_lm{lm}_z'
+            x_col = f'h0_lm{lm}_x'
+            y_col = f'h0_lm{lm}_y'
+            z_col = f'h0_lm{lm}_z'
             
             if x_col in row and pd.notna(row[x_col]):
                 x = row[x_col]
