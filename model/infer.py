@@ -12,10 +12,19 @@ import numpy as np
 import pandas as pd
 import torch
 import cv2
+import matplotlib
+matplotlib.use('Agg')  # Non-interactive backend for video generation
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+import mediapipe as mp
 from pyk4a import PyK4APlayback, CalibrationType
 from .config import CKPT_PATH, PRED_DIR, VIDEO_DIR, SEQ_LEN, FUTURE_FRAMES, HANDS_DIR, WORLD_DIR, ROOT
 from .data import load_features, load_receiving_hand_world, _read_csv, _pick_col
 from .model import HandoverTransformer
+
+# MediaPipe hand connections for skeleton drawing
+mp_hands = mp.solutions.hands
+HAND_CONNECTIONS = list(mp_hands.HAND_CONNECTIONS)
 
 def load_checkpoint(path: Path, device: str):
     if not path.exists():
@@ -271,10 +280,178 @@ def create_video(predictions: list, frames: list, stem: str, fps: int = 30):
     
     print(f"✓ Created video: {video_path.resolve()}")
 
+def create_3d_video(predictions: list, frames: list, stem: str, fps: int = 30):
+    """
+    Create a 3D matplotlib visualization video with:
+    - Actual receiving hand (hand_0) in GREEN
+    - Predicted receiving hand (hand_0) in RED
+    - Shows 3D skeleton using MediaPipe connections
+    """
+    if not predictions:
+        print("No predictions to visualize")
+        return
+    
+    # Get dimensions
+    future_frames, out_dim = predictions[0].shape
+    n_landmarks = out_dim // 3  # Should be 21
+    
+    # Load actual receiving hand coordinates
+    print(f"Loading actual receiving hand (hand_0) coordinates...")
+    from .data import load_receiving_hand_world
+    receiving_hand_coords, receiving_frames = load_receiving_hand_world(stem)
+    # Reshape to [T, 21, 3]
+    receiving_hand_coords = receiving_hand_coords.reshape(len(receiving_frames), n_landmarks, 3)
+    
+    # Create mapping from frame index to actual hand coordinates
+    receiving_hand_dict = {f: receiving_hand_coords[i] for i, f in enumerate(receiving_frames)}
+    
+    # Create mapping from frame index to predicted hand coordinates
+    frame_to_prediction = {}  # Maps frame_idx -> [n_landmarks, 3]
+    for pred, pred_frame_end in zip(predictions, frames):
+        pred_3d = pred.reshape(future_frames, n_landmarks, 3)
+        for i in range(future_frames):
+            frame_idx = pred_frame_end + 1 + i
+            frame_to_prediction[frame_idx] = pred_3d[i]  # [n_landmarks, 3]
+    
+    # Get all frames that have either actual or predicted data
+    all_frames = set(receiving_hand_dict.keys()) | set(frame_to_prediction.keys())
+    if not all_frames:
+        print("No frames with actual or predicted data")
+        return
+    
+    # Compute axis limits from all data
+    all_coords = []
+    for coords_dict in [receiving_hand_dict, frame_to_prediction]:
+        for frame_idx, coords in coords_dict.items():
+            valid = ~np.isnan(coords).any(axis=1)
+            if valid.any():
+                all_coords.append(coords[valid])
+    
+    if not all_coords:
+        print("No valid coordinates found")
+        return
+    
+    all_coords_array = np.concatenate(all_coords, axis=0)
+    xmin, xmax = all_coords_array[:, 0].min(), all_coords_array[:, 0].max()
+    ymin, ymax = all_coords_array[:, 1].min(), all_coords_array[:, 1].max()
+    zmin, zmax = all_coords_array[:, 2].min(), all_coords_array[:, 2].max()
+    
+    # Add margin
+    margin = 0.1
+    xmin -= margin
+    xmax += margin
+    ymin -= margin
+    ymax += margin
+    zmin -= margin
+    zmax += margin
+    
+    # Create video writer
+    video_path = VIDEO_DIR / f"{stem}_predicted_future_3d.mp4"
+    video_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Video dimensions
+    W, H = 800, 800
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    writer = cv2.VideoWriter(str(video_path), fourcc, fps, (W, H))
+    
+    # Create figure
+    fig = plt.figure(figsize=(8, 8), dpi=100)
+    ax = fig.add_subplot(111, projection='3d')
+    canvas = FigureCanvasAgg(fig)
+    
+    # Process each frame
+    sorted_frames = sorted(all_frames)
+    print(f"Generating 3D video for {len(sorted_frames)} frames...")
+    
+    for frame_idx in sorted_frames:
+        ax.clear()
+        
+        # Set title and labels
+        ax.set_title(f"3D Hand Prediction - Frame {frame_idx}", fontsize=14)
+        ax.set_xlabel("X (m)", fontsize=12)
+        ax.set_ylabel("Y (m)", fontsize=12)
+        ax.set_zlabel("Z (m)", fontsize=12)
+        
+        # Set axis limits
+        ax.set_xlim([xmin, xmax])
+        ax.set_ylim([ymin, ymax])
+        ax.set_zlim([zmin, zmax])
+        
+        # Set equal aspect ratio
+        ax.set_box_aspect([1, 1, 1])
+        
+        # Track if we've added labels to legend
+        has_actual = False
+        has_predicted = False
+        
+        # Draw actual hand in GREEN
+        if frame_idx in receiving_hand_dict:
+            actual_hand = receiving_hand_dict[frame_idx]  # [21, 3]
+            valid_actual = ~np.isnan(actual_hand).any(axis=1)
+            
+            if valid_actual.any():
+                actual_valid = actual_hand[valid_actual]
+                label = 'Actual' if not has_actual else ''
+                ax.scatter(actual_valid[:, 0], actual_valid[:, 1], actual_valid[:, 2], 
+                          c='green', s=50, alpha=0.8, label=label)
+                has_actual = True
+                
+                # Draw skeleton connections
+                for connection in HAND_CONNECTIONS:
+                    i1, i2 = connection[0], connection[1]
+                    if (i1 < n_landmarks and i2 < n_landmarks and 
+                        valid_actual[i1] and valid_actual[i2]):
+                        ax.plot([actual_hand[i1, 0], actual_hand[i2, 0]],
+                               [actual_hand[i1, 1], actual_hand[i2, 1]],
+                               [actual_hand[i1, 2], actual_hand[i2, 2]],
+                               'g-', linewidth=2, alpha=0.6)
+        
+        # Draw predicted hand in RED
+        if frame_idx in frame_to_prediction:
+            predicted_hand = frame_to_prediction[frame_idx]  # [21, 3]
+            valid_pred = ~np.isnan(predicted_hand).any(axis=1)
+            
+            if valid_pred.any():
+                pred_valid = predicted_hand[valid_pred]
+                label = 'Predicted' if not has_predicted else ''
+                ax.scatter(pred_valid[:, 0], pred_valid[:, 1], pred_valid[:, 2], 
+                          c='red', s=50, alpha=0.8, label=label, marker='^')
+                has_predicted = True
+                
+                # Draw skeleton connections
+                for connection in HAND_CONNECTIONS:
+                    i1, i2 = connection[0], connection[1]
+                    if (i1 < n_landmarks and i2 < n_landmarks and 
+                        valid_pred[i1] and valid_pred[i2]):
+                        ax.plot([predicted_hand[i1, 0], predicted_hand[i2, 0]],
+                               [predicted_hand[i1, 1], predicted_hand[i2, 1]],
+                               [predicted_hand[i1, 2], predicted_hand[i2, 2]],
+                               'r--', linewidth=2, alpha=0.6)
+        
+        # Add legend if we have any data
+        if has_actual or has_predicted:
+            ax.legend(loc='upper right')
+        
+        # Add grid
+        ax.grid(True, alpha=0.3)
+        
+        # Render to image
+        canvas.draw()
+        buf = np.frombuffer(canvas.buffer_rgba(), dtype=np.uint8)
+        img_rgba = buf.reshape((H, W, 4))
+        img_bgr = cv2.cvtColor(img_rgba, cv2.COLOR_RGBA2BGR)
+        
+        writer.write(img_bgr)
+    
+    writer.release()
+    plt.close(fig)
+    print(f"✓ Created 3D video: {video_path.resolve()}")
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("stem", help="video stem, e.g., 1_w_b")
-    ap.add_argument("--video", action="store_true", help="Generate video visualization")
+    ap.add_argument("--video", action="store_true", help="Generate 2D video visualization (overlay on original video)")
+    ap.add_argument("--video3d", action="store_true", help="Generate 3D matplotlib video visualization")
     args = ap.parse_args()
 
     print(f"Predicting future frames for {args.stem}...")
@@ -304,8 +481,12 @@ def main():
     print(f"✓ Wrote predictions: {outp.resolve()}")
     
     if args.video:
-        print("Generating video visualization...")
+        print("Generating 2D video visualization...")
         create_video(predictions, frames, args.stem)
+    
+    if args.video3d:
+        print("Generating 3D video visualization...")
+        create_3d_video(predictions, frames, args.stem)
 
 if __name__ == "__main__":
     main()
