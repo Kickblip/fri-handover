@@ -280,38 +280,99 @@ def create_video(predictions: list, frames: list, stem: str, fps: int = 30):
     
     print(f"✓ Created video: {video_path.resolve()}")
 
-def create_3d_video(predictions: list, frames: list, stem: str, fps: int = 30):
+def load_predictions_from_csv(stem: str) -> dict:
+    """
+    Load predictions from the generated CSV file.
+    Returns a dictionary mapping frame_idx -> [n_landmarks, 3] predicted coordinates.
+    """
+    pred_csv = PRED_DIR / f"{stem}_future_predictions.csv"
+    if not pred_csv.exists():
+        raise FileNotFoundError(f"Prediction CSV not found: {pred_csv}")
+    
+    print(f"Loading predictions from: {pred_csv}")
+    df = pd.read_csv(pred_csv)
+    
+    # Get landmark columns (lm_0_x, lm_0_y, lm_0_z, lm_1_x, ...)
+    landmark_cols = [c for c in df.columns if c.startswith("lm_") and c.endswith(("_x", "_y", "_z"))]
+    n_landmarks = len([c for c in landmark_cols if c.endswith("_x")])
+    
+    if n_landmarks == 0:
+        raise ValueError(f"No landmark columns found in CSV file. Expected columns like 'lm_0_x', 'lm_0_y', 'lm_0_z'")
+    
+    # Group by frame and future_frame_idx
+    frame_to_prediction = {}  # Maps frame_idx -> [n_landmarks, 3]
+    
+    for _, row in df.iterrows():
+        base_frame = int(row["frame"])  # Last frame of input window
+        future_frame_idx = int(row["future_frame_idx"])  # 0 to FUTURE_FRAMES-1
+        
+        # Calculate the actual frame number: base_frame + 1 + future_frame_idx
+        # base_frame is the last frame of input window, prediction starts at base_frame + 1
+        actual_frame = base_frame + 1 + future_frame_idx
+        
+        # Extract coordinates for all landmarks
+        coords = np.zeros((n_landmarks, 3), dtype=np.float32)
+        for lm_idx in range(n_landmarks):
+            x_col = f"lm_{lm_idx}_x"
+            y_col = f"lm_{lm_idx}_y"
+            z_col = f"lm_{lm_idx}_z"
+            if x_col in df.columns and y_col in df.columns and z_col in df.columns:
+                x_val = row[x_col]
+                y_val = row[y_col]
+                z_val = row[z_col]
+                if pd.notna(x_val) and pd.notna(y_val) and pd.notna(z_val):
+                    coords[lm_idx, 0] = float(x_val)
+                    coords[lm_idx, 1] = float(y_val)
+                    coords[lm_idx, 2] = float(z_val)
+                else:
+                    coords[lm_idx, :] = np.nan
+        
+        # Store prediction for this frame (overwrite if multiple predictions for same frame)
+        frame_to_prediction[actual_frame] = coords
+    
+    print(f"Loaded {len(frame_to_prediction)} predicted frames from CSV")
+    return frame_to_prediction
+
+def create_3d_video(predictions: list = None, frames: list = None, stem: str = None, fps: int = 30):
     """
     Create a 3D matplotlib visualization video with:
     - Actual receiving hand (hand_0) in GREEN
     - Predicted receiving hand (hand_0) in RED
     - Shows 3D skeleton using MediaPipe connections
-    """
-    if not predictions:
-        print("No predictions to visualize")
-        return
     
-    # Get dimensions
-    future_frames, out_dim = predictions[0].shape
-    n_landmarks = out_dim // 3  # Should be 21
+    Can use either in-memory predictions or load from CSV file.
+    If predictions/frames are None, will load from CSV using stem.
+    """
+    if stem is None:
+        raise ValueError("stem must be provided")
     
     # Load actual receiving hand coordinates
     print(f"Loading actual receiving hand (hand_0) coordinates...")
     from .data import load_receiving_hand_world
     receiving_hand_coords, receiving_frames = load_receiving_hand_world(stem)
-    # Reshape to [T, 21, 3]
+    
+    # Determine number of landmarks from actual data
+    n_landmarks = receiving_hand_coords.shape[1] // 3  # Should be 21
     receiving_hand_coords = receiving_hand_coords.reshape(len(receiving_frames), n_landmarks, 3)
     
     # Create mapping from frame index to actual hand coordinates
     receiving_hand_dict = {f: receiving_hand_coords[i] for i, f in enumerate(receiving_frames)}
     
-    # Create mapping from frame index to predicted hand coordinates
-    frame_to_prediction = {}  # Maps frame_idx -> [n_landmarks, 3]
-    for pred, pred_frame_end in zip(predictions, frames):
-        pred_3d = pred.reshape(future_frames, n_landmarks, 3)
-        for i in range(future_frames):
-            frame_idx = pred_frame_end + 1 + i
-            frame_to_prediction[frame_idx] = pred_3d[i]  # [n_landmarks, 3]
+    # Load predicted hand coordinates
+    if predictions is not None and frames is not None:
+        # Use in-memory predictions
+        print("Using in-memory predictions...")
+        frame_to_prediction = {}  # Maps frame_idx -> [n_landmarks, 3]
+        future_frames = predictions[0].shape[0]
+        for pred, pred_frame_end in zip(predictions, frames):
+            pred_3d = pred.reshape(future_frames, n_landmarks, 3)
+            for i in range(future_frames):
+                frame_idx = pred_frame_end + 1 + i
+                frame_to_prediction[frame_idx] = pred_3d[i]  # [n_landmarks, 3]
+    else:
+        # Load from CSV file
+        print("Loading predictions from CSV file...")
+        frame_to_prediction = load_predictions_from_csv(stem)
     
     # Get all frames that have either actual or predicted data
     all_frames = set(receiving_hand_dict.keys()) | set(frame_to_prediction.keys())
@@ -452,41 +513,54 @@ def main():
     ap.add_argument("stem", help="video stem, e.g., 1_w_b")
     ap.add_argument("--video", action="store_true", help="Generate 2D video visualization (overlay on original video)")
     ap.add_argument("--video3d", action="store_true", help="Generate 3D matplotlib video visualization")
+    ap.add_argument("--from-csv", action="store_true", help="Load predictions from CSV file instead of running inference (use with --video3d)")
     args = ap.parse_args()
 
-    print(f"Predicting future frames for {args.stem}...")
-    predictions, frames = predict_future_frames(args.stem)
+    # If --from-csv is used, skip prediction and load from CSV
+    if args.from_csv:
+        if not args.video3d:
+            print("Warning: --from-csv is only used with --video3d. Ignoring --from-csv.")
+            args.from_csv = False
     
-    # Save predictions as CSV
-    outp = PRED_DIR / f"{args.stem}_future_predictions.csv"
-    outp.parent.mkdir(parents=True, exist_ok=True)
-    
-    with outp.open("w") as f:
-        f.write("frame,future_frame_idx")
-        # Write header for all coordinates
-        future_frames, out_dim = predictions[0].shape
-        n_landmarks = out_dim // 3
-        for lm_idx in range(n_landmarks):
-            f.write(f",lm_{lm_idx}_x,lm_{lm_idx}_y,lm_{lm_idx}_z")
-        f.write("\n")
+    if args.from_csv:
+        # Load from CSV and generate 3D video only
+        print(f"Loading predictions from CSV for {args.stem}...")
+        create_3d_video(predictions=None, frames=None, stem=args.stem)
+    else:
+        # Normal flow: predict and optionally visualize
+        print(f"Predicting future frames for {args.stem}...")
+        predictions, frames = predict_future_frames(args.stem)
         
-        for pred, frame in zip(predictions, frames):
-            for f_idx in range(future_frames):
-                f.write(f"{int(frame)},{f_idx}")
-                for lm_idx in range(n_landmarks):
-                    x, y, z = pred[f_idx, lm_idx*3:(lm_idx+1)*3]
-                    f.write(f",{x:.6f},{y:.6f},{z:.6f}")
-                f.write("\n")
-    
-    print(f"✓ Wrote predictions: {outp.resolve()}")
-    
-    if args.video:
-        print("Generating 2D video visualization...")
-        create_video(predictions, frames, args.stem)
-    
-    if args.video3d:
-        print("Generating 3D video visualization...")
-        create_3d_video(predictions, frames, args.stem)
+        # Save predictions as CSV
+        outp = PRED_DIR / f"{args.stem}_future_predictions.csv"
+        outp.parent.mkdir(parents=True, exist_ok=True)
+        
+        with outp.open("w") as f:
+            f.write("frame,future_frame_idx")
+            # Write header for all coordinates
+            future_frames, out_dim = predictions[0].shape
+            n_landmarks = out_dim // 3
+            for lm_idx in range(n_landmarks):
+                f.write(f",lm_{lm_idx}_x,lm_{lm_idx}_y,lm_{lm_idx}_z")
+            f.write("\n")
+            
+            for pred, frame in zip(predictions, frames):
+                for f_idx in range(future_frames):
+                    f.write(f"{int(frame)},{f_idx}")
+                    for lm_idx in range(n_landmarks):
+                        x, y, z = pred[f_idx, lm_idx*3:(lm_idx+1)*3]
+                        f.write(f",{x:.6f},{y:.6f},{z:.6f}")
+                    f.write("\n")
+        
+        print(f"✓ Wrote predictions: {outp.resolve()}")
+        
+        if args.video:
+            print("Generating 2D video visualization...")
+            create_video(predictions, frames, args.stem)
+        
+        if args.video3d:
+            print("Generating 3D video visualization...")
+            create_3d_video(predictions=predictions, frames=frames, stem=args.stem)
 
 if __name__ == "__main__":
     main()
