@@ -11,7 +11,11 @@ import os
 import cv2
 
 # Fix path to find local config
-sys.path.append(str(Path(__file__).resolve().parent))
+# --- CRITICAL FIX: FORCE LOCAL IMPORT PRIORITY ---
+# We use insert(0, ...) instead of append(...) to ensure Python checks 
+# this folder (tcn/) for 'model.py' and 'data.py' BEFORE checking the root folder.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+# -------------------------------------------------
 
 # Try importing Kinect library
 try:
@@ -172,9 +176,35 @@ def main():
     print(f"Predicting with TCN for {args.stem}...")
     predictions, frames = predict_future_frames(args.stem)
     
-    # Save CSV
+    # Save predictions as CSV (Matches Transformer format with 3D coords)
     outp = PRED_DIR / f"{args.stem}_tcn_predictions.csv"
     outp.parent.mkdir(parents=True, exist_ok=True)
+    
+    with outp.open("w") as f:
+        f.write("frame,future_frame_idx")
+        
+        # Get shape from first prediction [future_frames, out_dim]
+        future_frames, out_dim = predictions[0].shape
+        n_landmarks = out_dim // 3  # Use 3 for x,y,z coordinates
+        
+        # Write Header
+        for lm_idx in range(n_landmarks):
+            f.write(f",lm_{lm_idx}_x,lm_{lm_idx}_y,lm_{lm_idx}_z")
+        f.write("\n")
+        
+        # Write Data
+        for pred, frame in zip(predictions, frames):
+            for f_idx in range(future_frames):
+                # Write frame index info
+                f.write(f"{int(frame)},{f_idx}")
+                
+                # Write all 3D coordinates for this step
+                for lm_idx in range(n_landmarks):
+                    x, y, z = pred[f_idx, lm_idx*3:(lm_idx+1)*3]
+                    f.write(f",{x:.6f},{y:.6f},{z:.6f}")
+                f.write("\n")
+    
+    print(f"✓ Wrote predictions: {outp.resolve()}")
     
     if args.video:
         create_video(predictions, frames, args.stem)

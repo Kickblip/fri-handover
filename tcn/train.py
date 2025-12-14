@@ -3,7 +3,8 @@ import os
 from pathlib import Path
 
 # Add the current directory to path so we can import local config/data
-sys.path.append(str(Path(__file__).resolve().parent))
+# Use 'insert(0, ...)' to FORCE looking in the local folder FIRST
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 # Add the root directory to path so we can find shared utils if needed
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 

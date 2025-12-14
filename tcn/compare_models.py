@@ -11,9 +11,9 @@ import sys
 sys.path.append(str(Path.cwd()))
 
 # Import from the specific packages
-from team_transformer import config as tf_config
-from team_transformer import data as tf_data
-from team_transformer.model import HandoverTransformer
+from model import config as tf_config
+from model import data as tf_data
+from model.model import HandoverTransformer
 
 # --- FIX: Import tcn_config ---
 from tcn import tcn_config     # Was 'config'

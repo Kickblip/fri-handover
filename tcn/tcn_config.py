@@ -30,10 +30,10 @@ TCN_KERNEL_SIZE = 3
 TCN_DROPOUT = 0.3
 
 # ---------------- Paramaters---------------- 
-SEQ_LEN    = 20        
+SEQ_LEN    = 10       
 SEQ_STRIDE = 1
 BATCH_SIZE = 32
-FUTURE_FRAMES = 10     
+FUTURE_FRAMES = 20     
 # ---------------- Data Splitting ----------------
 TRAIN_SPLIT = 0.7
 VAL_SPLIT   = 0.15
